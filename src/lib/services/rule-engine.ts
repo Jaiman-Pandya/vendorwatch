@@ -1,21 +1,28 @@
 /**
- * Structured schema for Reducto output (plan-aligned). All fields optional strings.
+ * Structured schema for Reducto output (plan-aligned). Fields can be string or string[].
+ * Arrays allow multiple concrete facts per category; rule engine normalizes for comparison.
  */
 export interface VendorStructuredData {
-  pricing_terms?: string;
-  fee_structures?: string;
-  liability_clauses?: string;
-  indemnification_terms?: string;
-  termination_terms?: string;
-  renewal_terms?: string;
-  data_retention_policies?: string;
-  data_residency_locations?: string;
-  encryption_practices?: string;
-  compliance_references?: string;
-  sla_uptime_commitments?: string;
-  support_response_times?: string;
-  data_export_rights?: string;
-  [key: string]: string | undefined;
+  pricing_terms?: string | string[];
+  fee_structures?: string | string[];
+  liability_clauses?: string | string[];
+  indemnification_terms?: string | string[];
+  termination_terms?: string | string[];
+  renewal_terms?: string | string[];
+  data_retention_policies?: string | string[];
+  data_residency_locations?: string | string[];
+  encryption_practices?: string | string[];
+  compliance_references?: string | string[];
+  sla_uptime_commitments?: string | string[];
+  support_response_times?: string | string[];
+  data_export_rights?: string | string[];
+  [key: string]: string | string[] | undefined;
+}
+
+function toStr(val: string | string[] | undefined): string {
+  if (val == null) return "";
+  if (Array.isArray(val)) return val.filter(Boolean).join(" ").trim().toLowerCase();
+  return String(val).trim().toLowerCase();
 }
 
 export interface RuleRiskResult {
@@ -25,17 +32,15 @@ export interface RuleRiskResult {
   recommendedAction: string;
 }
 
-function norm(s: string | undefined): string {
-  if (s == null || typeof s !== "string") return "";
-  return s.trim().toLowerCase();
+function changed(
+  oldVal: string | string[] | undefined,
+  newVal: string | string[] | undefined
+): boolean {
+  return toStr(oldVal) !== toStr(newVal);
 }
 
-function changed(oldVal: string | undefined, newVal: string | undefined): boolean {
-  return norm(oldVal) !== norm(newVal);
-}
-
-function isEmpty(s: string | undefined): boolean {
-  return norm(s) === "";
+function isEmpty(val: string | string[] | undefined): boolean {
+  return toStr(val) === "";
 }
 
 /**

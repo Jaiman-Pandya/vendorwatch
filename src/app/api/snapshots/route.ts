@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
           vendorName: vendor?.name ?? "Unknown",
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
+          structuredData: snapshot.structuredData ?? {},
           createdAt: snapshot.createdAt?.toISOString(),
         },
       });
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
       vendorName: string;
       extractedText: string;
       contentHash: string;
+      structuredData?: Record<string, unknown>;
       createdAt: string;
     }> = [];
 
@@ -60,6 +62,7 @@ export async function GET(request: NextRequest) {
           vendorName: vendor.name,
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
+          structuredData: snapshot.structuredData,
           createdAt: snapshot.createdAt!.toISOString(),
         });
       }

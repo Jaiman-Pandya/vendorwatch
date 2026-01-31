@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toCSV, toMarkdown } from "@/lib/services/exportFormats";
+import { useTheme } from "@/lib/theme-provider";
+import { groupFindingsByCategory } from "@/lib/services/risk-insights";
 
 interface Vendor {
   id: string;
@@ -16,6 +19,11 @@ interface ExternalSource {
   source: "news" | "web";
 }
 
+interface RiskFinding {
+  category: string;
+  finding: string;
+}
+
 interface RiskEvent {
   id: string;
   vendor: string;
@@ -24,6 +32,8 @@ interface RiskEvent {
   type: string;
   summary: string;
   recommendedAction?: string;
+  structuredInsights?: string | null;
+  riskFindings?: RiskFinding[];
   source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];
@@ -46,6 +56,7 @@ interface Snapshot {
   vendorName: string;
   extractedText: string;
   contentHash: string;
+  structuredData?: Record<string, unknown>;
   createdAt: string;
 }
 
@@ -64,6 +75,32 @@ const severityStyles = {
   medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
   low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
+
+/** Parse summary into intro + extracted-terms table rows when format matches. */
+function parseExtractedTerms(summary: string): { intro: string; rows: { term: string; value: string }[] } | null {
+  if (!summary?.trim()) return null;
+  const blocks = summary.split(/\n\n+/);
+  const rows: { term: string; value: string }[] = [];
+  let intro = "";
+  let foundTerms = false;
+  for (const block of blocks) {
+    const colonIdx = block.indexOf(": ");
+    if (colonIdx > 0 && colonIdx < 50) {
+      const term = block.slice(0, colonIdx).trim();
+      const value = block.slice(colonIdx + 2).trim();
+      if (term && value && /^[\w\s&.-]+$/.test(term)) {
+        rows.push({ term, value });
+        foundTerms = true;
+      } else if (!foundTerms) {
+        intro = intro ? `${intro}\n\n${block}` : block;
+      }
+    } else if (!foundTerms) {
+      intro = intro ? `${intro}\n\n${block}` : block;
+    }
+  }
+  if (rows.length < 2) return null;
+  return { intro: intro.trim(), rows };
+}
 
 const typeLabels: Record<string, string> = {
   pricing: "Pricing",
@@ -122,6 +159,7 @@ function groupVendorsByDomain(vendors: Vendor[]): Array<{ domain: string; vendor
 }
 
 export default function Home() {
+  const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState<Tab>("overview");
   const [vendorName, setVendorName] = useState("");
   const [vendorWebsite, setVendorWebsite] = useState("");
@@ -449,6 +487,54 @@ export default function Home() {
     }
   };
 
+  const baseFilename = (vendorName: string) =>
+    `vendorwatch-${vendorName.replace(/\s+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0, 10)}`;
+
+  const handleDownloadVendorData = async (
+    vendorId: string,
+    vendorName: string,
+    format: "json" | "csv" | "markdown"
+  ) => {
+    try {
+      const res = await fetch(`/api/snapshots/${vendorId}/latest`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+
+      let content: string;
+      let mimeType: string;
+      let extension: string;
+
+      switch (format) {
+        case "csv":
+          content = toCSV(data);
+          mimeType = "text/csv";
+          extension = "csv";
+          break;
+        case "markdown":
+          content = toMarkdown(data);
+          mimeType = "text/markdown";
+          extension = "md";
+          break;
+        default:
+          content = JSON.stringify(data, null, 2);
+          mimeType = "application/json";
+          extension = "json";
+      }
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${baseFilename(vendorName)}.${extension}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setSuccessMessage(`Downloaded ${vendorName} as ${format.toUpperCase()}`);
+      setTimeout(() => setSuccessMessage(null), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Download failed");
+    }
+  };
+
   const toggleAlertSeverity = (s: "low" | "medium" | "high") => {
     setAlertSeverities((prev) =>
       prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
@@ -486,18 +572,19 @@ export default function Home() {
     { id: "content", label: "Extracted Content", count: snapshots.length },
   ];
 
+
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
       {/* Header */}
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95 transition-colors duration-200">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white font-semibold">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-700 text-white font-semibold shadow-lg shadow-indigo-500/20 dark:from-indigo-500 dark:to-indigo-600">
               V
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">VendorWatch</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Vendor risk monitoring</p>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">VendorWatch</h1>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Vendor Risk Monitoring</p>
             </div>
             {plan && (
               <div className="relative">
@@ -545,43 +632,59 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+            >
+              {theme === "light" ? (
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => { fetchPlan(); fetchVendors(); fetchRiskEvents(); fetchSnapshots(); setSuccessMessage("Refreshed"); setTimeout(() => setSuccessMessage(null), 2000); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               Refresh
             </button>
             {monitoring ? (
-              <button
-                type="button"
-                onClick={handleCancelMonitor}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
-              >
-                Stop Monitor
+            <button
+              type="button"
+              onClick={handleCancelMonitor}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700"
+            >
+                Stop
               </button>
             ) : (
             <button
               type="button"
               onClick={handleRunMonitor}
               disabled={vendors.length === 0 || monitorTargetCount === 0}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-700 hover:shadow-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none dark:bg-indigo-500 dark:shadow-indigo-500/20 dark:hover:bg-indigo-600"
             >
-              Run Monitor {monitorTargetCount > 0 ? `(${monitorTargetCount})` : ""}
+              Run Monitor {monitorTargetCount > 0 ? ` (${monitorTargetCount})` : ""}
             </button>
             )}
           </div>
         </div>
         {/* Tabs */}
         <nav className="mx-auto max-w-7xl px-6">
-          <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex gap-1 border-b border-slate-200/80 dark:border-slate-800">
             {navItems.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`border-b-2 px-4 py-3 text-sm font-medium transition duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                className={`border-b-2 px-5 py-3.5 text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-900 ${
                   tab === t.id
-                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-500 dark:text-indigo-400"
-                    : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                    : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50/50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/50"
                 }`}
               >
                 {t.label}
@@ -599,7 +702,7 @@ export default function Home() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         {/* Progress bar */}
         {monitorProgress && (
-          <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+          <div className="mb-6 rounded-xl border border-indigo-200/80 bg-indigo-50/80 p-5 shadow-sm dark:border-indigo-800/50 dark:bg-indigo-900/20">
             <div className="mb-2 flex items-center justify-between text-sm">
               <span className="font-medium text-indigo-900 dark:text-indigo-100">
                 Monitoring vendors... {monitorProgress.current} / {monitorProgress.total}
@@ -627,12 +730,12 @@ export default function Home() {
 
         {/* Messages */}
         {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300">
+          <div className="mb-6 rounded-xl border border-red-200/80 bg-red-50 p-4 text-sm font-medium text-red-800 shadow-sm dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
             {error}
           </div>
         )}
         {successMessage && (
-          <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
+          <div className="mb-6 rounded-xl border border-emerald-200/80 bg-emerald-50 p-4 text-sm font-medium text-emerald-800 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-300">
             {successMessage}
           </div>
         )}
@@ -641,29 +744,29 @@ export default function Home() {
         {tab === "overview" && (
           <div className="space-y-8 transition-opacity duration-300">
             <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Summary</h2>
+              <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Summary</h2>
               <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Vendors Monitored</p>
-                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{vendors.length}</p>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:border-slate-300 hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Vendors Monitored</p>
+                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{vendors.length}</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Risk Alerts</p>
-                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{riskEvents.length}</p>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:border-slate-300 hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk Alerts</p>
+                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{riskEvents.length}</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Snapshots Stored</p>
-                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{snapshots.length}</p>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:border-slate-300 hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Snapshots Stored</p>
+                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{snapshots.length}</p>
                 </div>
               </div>
             </section>
 
             {vendors.length > 0 && (
               <section>
-                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Sites to monitor</h2>
-                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Sites to Monitor</h2>
+                <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                   <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                    Choose which sites to include when you run the monitor. Run Monitor will only process the selected sites.
+                    Select which vendors to include when you run the monitor. Only selected sites are processed.
                   </p>
                   <div className="mb-4 flex flex-wrap gap-2">
                     <button
@@ -671,14 +774,14 @@ export default function Home() {
                       onClick={() => setSelectedVendorIds(vendors.map((v) => v.id))}
                       className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
-                      Select all
+                      Select All
                     </button>
                     <button
                       type="button"
                       onClick={() => setSelectedVendorIds([])}
                       className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
-                      Deselect all
+                      Deselect All
                     </button>
                     <span className="flex items-center py-1.5 text-sm text-slate-500 dark:text-slate-400">
                       {selectedVendorIds.length} of {vendors.length} selected
@@ -710,10 +813,10 @@ export default function Home() {
             )}
 
             <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Research mode</h2>
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Research Mode</h2>
+              <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
-                  Basic: rule-based detection from structured data only (no LLM). Deep: adds Claude AI for richer summaries and recommendations.
+                  Basic: rule-based detection from structured data only. Deep: adds AI insights for richer summaries and recommendations.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -745,8 +848,8 @@ export default function Home() {
             </section>
 
             <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Pipeline</h2>
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Pipeline</h2>
+              <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Firecrawl</span>
                   <span className="text-slate-400">+</span>
@@ -758,7 +861,7 @@ export default function Home() {
                   <span className="text-slate-400">→</span>
                   <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Reducto</span>
                   <span className="text-slate-400">→</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">{researchMode === "deep" ? "Rules + Claude" : "Rules"}</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">{researchMode === "deep" ? "Rules + Insights" : "Rules"}</span>
                   <span className="text-slate-400">→</span>
                   <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Resend</span>
                 </div>
@@ -766,11 +869,11 @@ export default function Home() {
             </section>
 
             <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Email alerts</h2>
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
-                  Choose which severities trigger an email (any combination of low, medium, high).
-                </p>
+                <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Email Alerts</h2>
+              <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                    Select which severities trigger an email. You can enable any combination of Low, Medium, or High.
+                  </p>
                 <div className="mb-4 flex flex-wrap gap-4">
                   {(["low", "medium", "high"] as const).map((s) => (
                     <label key={s} className="flex cursor-pointer items-center gap-2">
@@ -788,7 +891,7 @@ export default function Home() {
                 </div>
                 <div className="mb-4 text-sm text-slate-500 dark:text-slate-400">
                   {alertEmailConfigured ? (
-                    <>Emails sent to: <strong>{alertEmailMasked ?? "—"}</strong></>
+                    <>Emails are sent to: <strong>{alertEmailMasked ?? "—"}</strong></>
                   ) : (
                     <span className="text-amber-600 dark:text-amber-400">
                       Set RESEND_API_KEY and ALERT_EMAIL in .env.local to receive emails.
@@ -800,9 +903,9 @@ export default function Home() {
                     type="button"
                     onClick={handleSaveAlertPreferences}
                     disabled={savingAlerts}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
                   >
-                    {savingAlerts ? "Saving…" : "Save preferences"}
+                    {savingAlerts ? "Saving…" : "Save Preferences"}
                   </button>
                   {alertEmailConfigured && (
                     <button
@@ -811,7 +914,7 @@ export default function Home() {
                       disabled={sendingTest}
                       className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
                     >
-                      {sendingTest ? "Sending…" : "Send test email"}
+                      {sendingTest ? "Sending…" : "Send Test Email"}
                     </button>
                   )}
                 </div>
@@ -820,8 +923,8 @@ export default function Home() {
 
             {monitorResults && monitorResults.length > 0 && (
               <section>
-                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Last monitor run</h2>
-                <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Last Monitor Run</h2>
+                <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -860,8 +963,8 @@ export default function Home() {
         {/* Vendors */}
         {tab === "vendors" && (
           <div className="grid gap-8 lg:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Add Vendor</h2>
+            <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Add Vendor</h2>
               {atVendorLimit && (
                 <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
                   <p className="mb-3 text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -892,7 +995,7 @@ export default function Home() {
                     value={vendorName}
                     onChange={(e) => setVendorName(e.target.value)}
                     placeholder="e.g. Stripe"
-                    className="w-full rounded-lg border border-slate-300 px-4 py-2.5 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                     required
                   />
                 </div>
@@ -903,28 +1006,28 @@ export default function Home() {
                     value={vendorWebsite}
                     onChange={(e) => setVendorWebsite(e.target.value)}
                     placeholder="https://stripe.com"
-                    className="w-full rounded-lg border border-slate-300 px-4 py-2.5 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                     required
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={submitting || atVendorLimit}
-                  className="w-full rounded-lg bg-indigo-600 py-2.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full rounded-lg bg-indigo-600 py-2.5 font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? "Adding…" : atVendorLimit ? "Limit reached" : "Add Vendor"}
                 </button>
               </form>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Monitored Vendors</h2>
+            <div className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-white">Monitored Vendors</h2>
               <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                Grouped by domain. Duplicate websites are blocked when adding.
+                Vendors are grouped by domain. Duplicate websites are not allowed.
               </p>
               {vendors.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 py-12 text-center dark:border-slate-700">
-                  <p className="text-slate-500 dark:text-slate-400">No vendors yet.</p>
-                  <p className="mt-1 text-sm text-slate-400">Add one above to get started.</p>
+                <p className="font-medium text-slate-600 dark:text-slate-400">No vendors yet</p>
+                <p className="mt-1 text-sm text-slate-400">Add a vendor above to get started.</p>
                 </div>
               ) : (
                 <div className="space-y-6">
@@ -1003,84 +1106,160 @@ export default function Home() {
 
         {/* Risk Alerts */}
         {tab === "alerts" && (
-          <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-            <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Risk Alerts</h2>
+          <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700">
+              <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">Risk Alerts</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Rule-based (Basic) or AI-enhanced (Deep). Source shown per alert. Medium/high can trigger email.
+                Liabilities and findings extracted from vendor terms. Alerts are grouped by Legal, Data & Security, Financial, and Operational risk.
               </p>
             </div>
             {loading ? (
               <div className="p-8 text-center text-slate-500">Loading…</div>
             ) : riskEvents.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 py-16 text-center dark:border-slate-700">
-                <p className="text-slate-500 dark:text-slate-400">No alerts yet.</p>
-                <p className="mt-1 text-sm text-slate-400">Add vendors and run the monitor to detect changes.</p>
+                <p className="font-medium text-slate-600 dark:text-slate-400">No alerts yet</p>
+                <p className="mt-1 text-sm text-slate-400">Add vendors and run the monitor to surface liabilities and risk findings.</p>
               </div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {riskEvents.map((event) => (
-                  <li key={event.id} className="p-6 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900 dark:text-white">{event.vendor}</span>
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${severityStyles[event.severity]}`}>
-                            {event.severity}
-                          </span>
-                          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                            {typeLabels[event.type] ?? event.type}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              event.source === "rules"
-                                ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
-                                : "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
-                            }`}
-                            title={event.source === "rules" ? "Rule-based detection (Basic mode)" : "AI analysis (Deep mode)"}
-                          >
-                            {event.source === "rules" ? "Rules" : "AI"}
-                          </span>
-                          {event.alertSent && (
-                            <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                              Email sent
+                {riskEvents.map((event) => {
+                  const grouped = groupFindingsByCategory(
+                    (event.riskFindings ?? []).map((f) => ({ category: f.category, finding: f.finding }))
+                  );
+                  return (
+                    <li key={event.id} className="p-6 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-slate-900 dark:text-white">{event.vendor}</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${severityStyles[event.severity]}`}>
+                              {event.severity}
                             </span>
+                            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                              {typeLabels[event.type] ?? event.type}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                event.source === "rules"
+                                  ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                                  : "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                              }`}
+                              title={event.source === "rules" ? "Rule-based detection" : "Insights"}
+                            >
+                              {event.source === "rules" ? "Rules" : "Insights"}
+                            </span>
+                            {event.alertSent && (
+                              <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                Email Sent
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                            <span>Source: {event.source === "rules" ? "Rules" : "Insights"}</span>
+                            {grouped.length > 0 && (
+                              <>
+                                <span>·</span>
+                                <span>Findings: Reducto (Terms/Policy)</span>
+                              </>
+                            )}
+                            {event.externalSources && event.externalSources.length > 0 && (
+                              <>
+                                <span>·</span>
+                                <span>External: News & Web</span>
+                              </>
+                            )}
+                          </div>
+                          {grouped.length > 0 ? (
+                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                              {grouped.map(({ category, findings }) => (
+                                <div key={category} className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">{category}</p>
+                                  <ul className="space-y-1.5">
+                                    {findings.map((finding, i) => (
+                                      <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500 dark:bg-indigo-400" aria-hidden="true" />
+                                        <span>{finding}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {event.summary && (
+                            <div className="mt-4">
+                              {(() => {
+                                const parsed = parseExtractedTerms(event.summary);
+                                if (parsed && parsed.rows.length > 0) {
+                                  return (
+                                    <>
+                                      {parsed.intro && (
+                                        <p className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">{parsed.intro}</p>
+                                      )}
+                                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+                                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                                          <thead>
+                                            <tr>
+                                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Term</th>
+                                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Value</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                                            {parsed.rows.map((row, i) => (
+                                              <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
+                                                <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300">{row.term}</td>
+                                                <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{row.value}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </>
+                                  );
+                                }
+                                return <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-400">{event.summary}</p>;
+                              })()}
+                            </div>
+                          )}
+                          {event.recommendedAction && (
+                            <div className="mt-4 rounded-lg border-l-4 border-indigo-500 bg-indigo-50/50 py-3 pl-4 pr-3 dark:bg-indigo-900/20 dark:border-indigo-400">
+                              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Recommended Actions</p>
+                              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">{event.recommendedAction}</p>
+                            </div>
+                          )}
+                          {event.externalSources && event.externalSources.length > 0 && (
+                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">External Sources</p>
+                              <ul className="space-y-3">
+                                {event.externalSources.map((src, i) => (
+                                  <li key={i} className="flex gap-3">
+                                    <span className="shrink-0 rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium capitalize text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                                      {src.source}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <a
+                                        href={src.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400 break-all"
+                                      >
+                                        {src.title || src.url}
+                                      </a>
+                                      {src.snippet && (
+                                        <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{src.snippet}</p>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                           )}
                         </div>
-                        <p className="mt-2 text-slate-600 dark:text-slate-400">{event.summary}</p>
-                        {event.recommendedAction && (
-                          <p className="mt-2 text-sm">
-                            <span className="font-medium text-slate-700 dark:text-slate-300">Recommended:</span>{" "}
-                            <span className="text-slate-600 dark:text-slate-400">{event.recommendedAction}</span>
-                          </p>
-                        )}
-                        {event.externalSources && event.externalSources.length > 0 && (
-                          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
-                            <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">External sources (news/web)</p>
-                            <ul className="space-y-1.5">
-                              {event.externalSources.map((src, i) => (
-                                <li key={i}>
-                                  <a
-                                    href={src.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm text-indigo-600 hover:underline dark:text-indigo-400"
-                                  >
-                                    {src.title || src.url}
-                                  </a>
-                                  {src.snippet && (
-                                    <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{src.snippet}</p>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                        <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">{formatTimestamp(event.createdAt)}</span>
                       </div>
-                      <span className="text-xs text-slate-500 dark:text-slate-500">{formatTimestamp(event.createdAt)}</span>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -1088,17 +1267,17 @@ export default function Home() {
 
         {/* Extracted Content */}
         {tab === "content" && (
-          <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-            <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Extracted Content</h2>
+          <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700">
+              <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">Extracted Content</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Vendor site (scrape + multi-page crawl) + external web/news search. Run monitor to populate.
+                Extracted content from vendor sites and external search. Run the monitor to populate snapshots.
               </p>
             </div>
             {snapshots.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 py-16 text-center dark:border-slate-700">
-                <p className="text-slate-500 dark:text-slate-400">No extracted content yet.</p>
-                <p className="mt-1 text-sm text-slate-400">Run the monitor to scrape vendor sites.</p>
+                <p className="font-medium text-slate-600 dark:text-slate-400">No extracted content yet</p>
+                <p className="mt-1 text-sm text-slate-400">Run the monitor to scrape vendor sites and extract structured data.</p>
               </div>
             ) : (
               <div className="p-6">
@@ -1120,18 +1299,50 @@ export default function Home() {
                 </div>
                 {selectedSnapshot && (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                         {selectedSnapshot.vendorName} — {formatTimestamp(selectedSnapshot.createdAt)}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSnapshot(null)}
-                        className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                      >
-                        Close
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Download</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadVendorData(selectedSnapshot.vendorId, selectedSnapshot.vendorName, "json")}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                        >
+                          JSON
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadVendorData(selectedSnapshot.vendorId, selectedSnapshot.vendorName, "csv")}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                        >
+                          CSV
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadVendorData(selectedSnapshot.vendorId, selectedSnapshot.vendorName, "markdown")}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                        >
+                          Markdown
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSnapshot(null)}
+                          className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                        >
+                          Close
+                        </button>
+                      </div>
                     </div>
+                    {selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0 && (
+                      <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
+                        <p className="mb-2 text-xs font-medium text-indigo-800 dark:text-indigo-300">Structured data (Reducto)</p>
+                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-3 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                          {JSON.stringify(selectedSnapshot.structuredData, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-white p-4 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
                       {selectedSnapshot.extractedText || "(empty)"}
                     </pre>

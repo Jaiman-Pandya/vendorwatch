@@ -3,8 +3,10 @@ import { getVendorsCollection, getSnapshotsCollection, getRiskEventsCollection }
 import type { RiskEvent, ExternalSource, SnapshotStructuredData } from "../db/models";
 import { hashContent } from "./hashing";
 import { crawlVendor, crawlVendorSite, searchVendorNews } from "./firecrawl";
-import { extractStructuredData } from "./reducto";
+import { extractFromUrls, getExtractionUrls } from "./reducto";
 import { extractDocumentLinks } from "../utils/document-links";
+import { buildCanonicalSummary, buildConciseSummary } from "./structured-summary";
+import { extractRiskFindings, buildRecommendedActionsFromFindings } from "./risk-insights";
 import { runRuleEngine, ruleResultToRiskEvent, type VendorStructuredData } from "./rule-engine";
 import { getResearchMode } from "../config/research-mode";
 import { analyzeContentChange, analyzeInitialContent } from "./llm-analysis";
@@ -151,16 +153,14 @@ export async function runMonitorCycle(
       const isDeep = getResearchMode() === "deep";
 
       if (!lastSnapshot) {
-        // First snapshot: optionally extract structured from linked docs, then store
+        // Extract structured data from linked docs and common legal paths
         let firstStructured: SnapshotStructuredData | undefined;
         try {
           const docLinks = extractDocumentLinks(extractedText, url);
-          for (const docUrl of docLinks) {
-            const data = await extractStructuredData(docUrl);
-            if (data && Object.keys(data).length > 0) {
-              firstStructured = data as SnapshotStructuredData;
-              break;
-            }
+          const urlsToTry = getExtractionUrls(docLinks, url);
+          const data = await extractFromUrls(urlsToTry);
+          if (data && Object.keys(data).length > 0) {
+            firstStructured = data as SnapshotStructuredData;
           }
         } catch {
           // continue without structured
@@ -180,26 +180,45 @@ export async function runMonitorCycle(
         let recommendedAction: string;
         let source: "rules" | "ai" = "ai";
 
+        const canonicalSummary = buildCanonicalSummary(firstStructured);
+        const conciseSummary = buildConciseSummary(firstStructured);
+
         if (isDeep) {
-          const analysis = await analyzeInitialContent(vendorName, extractedText);
+          const analysis = await analyzeInitialContent(
+            vendorName,
+            extractedText,
+            firstStructured ?? undefined
+          );
           severity = analysis.severity;
           type = analysis.type;
-          summary = analysis.summary;
+          summary = canonicalSummary
+            ? `${analysis.summary}\n\n${canonicalSummary}`
+            : analysis.summary;
           recommendedAction = analysis.recommendedAction;
           source = "ai";
         } else {
           const ruleResults = runRuleEngine(null, firstStructured ?? null);
           const ruleEvent = ruleResultToRiskEvent(
             ruleResults,
-            "Initial baseline established. Content stored for future comparison.",
-            "1) Run the monitor periodically to detect changes. 2) Review vendor terms as needed."
+            canonicalSummary || "Initial baseline established. Content stored for future comparison.",
+            "1) Run the monitor periodically to detect changes. 2) Review vendor terms and structured data in the dashboard."
           );
           severity = ruleEvent.severity;
           type = ruleEvent.type;
-          summary = ruleEvent.summary;
+          summary = canonicalSummary || ruleEvent.summary;
           recommendedAction = ruleEvent.recommendedAction;
           source = "rules";
         }
+
+        const structuredInsights = conciseSummary || (canonicalSummary ? canonicalSummary.slice(0, 500) : undefined);
+        const riskFindings = extractRiskFindings(firstStructured).map((f) => ({
+          category: f.category,
+          finding: f.finding,
+        }));
+        const findingsBasedActions = buildRecommendedActionsFromFindings(
+          riskFindings.map((f) => ({ category: f.category, finding: f.finding, concern: undefined }))
+        );
+        if (findingsBasedActions) recommendedAction = findingsBasedActions;
 
         // #region agent log
         debugLog("monitor.ts:first_snapshot:beforeAlert", "first_snapshot before sendRiskAlert", { vendorName, severity }, "H4");
@@ -223,6 +242,8 @@ export async function runMonitorCycle(
           type,
           summary,
           recommendedAction,
+          structuredInsights,
+          riskFindings: riskFindings.length > 0 ? riskFindings : undefined,
           source,
           alertSent,
           externalSources: externalSources.length > 0 ? externalSources : undefined,
@@ -263,16 +284,14 @@ export async function runMonitorCycle(
         continue;
       }
 
-      // Extract structured data via Reducto first, then store new snapshot with it
+      // Extract structured data via Reducto
       let newStructured: SnapshotStructuredData | undefined;
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
-        for (const docUrl of docLinks) {
-          const data = await extractStructuredData(docUrl);
-          if (data && Object.keys(data).length > 0) {
-            newStructured = data as SnapshotStructuredData;
-            break;
-          }
+        const urlsToTry = getExtractionUrls(docLinks, url);
+        const data = await extractFromUrls(urlsToTry);
+        if (data && Object.keys(data).length > 0) {
+          newStructured = data as SnapshotStructuredData;
         }
       } catch {
         // continue without structured
@@ -289,6 +308,9 @@ export async function runMonitorCycle(
       const prevStructured = (lastSnapshot as { structuredData?: VendorStructuredData }).structuredData ?? null;
       const ruleResults = runRuleEngine(prevStructured, (newStructured ?? null) as VendorStructuredData);
 
+      const canonicalSummary = buildCanonicalSummary(newStructured);
+      const conciseSummary = buildConciseSummary(newStructured);
+
       let severity: "low" | "medium" | "high";
       let type: string;
       let summary: string;
@@ -304,21 +326,33 @@ export async function runMonitorCycle(
         );
         severity = analysis.severity;
         type = analysis.type;
-        summary = analysis.summary;
+        summary = canonicalSummary
+          ? `${analysis.summary}\n\n${canonicalSummary}`
+          : analysis.summary;
         recommendedAction = analysis.recommendedAction;
         source = "ai";
       } else {
         const ruleEvent = ruleResultToRiskEvent(
           ruleResults,
-          "Vendor content changed. No structured field changes detected by rules; review extracted content.",
-          "1) Review the extracted content in the dashboard. 2) Run monitor again after vendor updates documents."
+          canonicalSummary || "Vendor content changed. No structured field changes detected by rules; review extracted content.",
+          "1) Review the extracted content and structured data in the dashboard. 2) Run monitor again after vendor updates documents."
         );
         severity = ruleEvent.severity;
         type = ruleEvent.type;
-        summary = ruleEvent.summary;
+        summary = canonicalSummary || ruleEvent.summary;
         recommendedAction = ruleEvent.recommendedAction;
         source = "rules";
       }
+
+      const structuredInsights = conciseSummary || (canonicalSummary ? canonicalSummary.slice(0, 500) : undefined);
+      const riskFindings = extractRiskFindings(newStructured).map((f) => ({
+        category: f.category,
+        finding: f.finding,
+      }));
+      const findingsBasedActions = buildRecommendedActionsFromFindings(
+        riskFindings.map((f) => ({ category: f.category, finding: f.finding, concern: undefined }))
+      );
+      if (findingsBasedActions) recommendedAction = findingsBasedActions;
 
       // Let sendRiskAlert check user's selected severities (low/medium/high)
       // #region agent log
@@ -342,6 +376,8 @@ export async function runMonitorCycle(
         type,
         summary,
         recommendedAction,
+        structuredInsights,
+        riskFindings: riskFindings.length > 0 ? riskFindings : undefined,
         source,
         alertSent,
         externalSources: externalSources.length > 0 ? externalSources : undefined,

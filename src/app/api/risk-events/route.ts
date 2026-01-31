@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
       type: e.type,
       summary: e.summary,
       recommendedAction: e.recommendedAction,
+      structuredInsights: e.structuredInsights ?? null,
+      riskFindings: e.riskFindings ?? [],
       source: e.source ?? "ai",
       alertSent: e.alertSent ?? false,
       externalSources: e.externalSources ?? [],

@@ -17,20 +17,20 @@ export interface Vendor {
 
 /** Structured extraction from Reducto (plan-aligned); used for rule-engine comparison. */
 export interface SnapshotStructuredData {
-  pricing_terms?: string;
-  fee_structures?: string;
-  liability_clauses?: string;
-  indemnification_terms?: string;
-  termination_terms?: string;
-  renewal_terms?: string;
-  data_retention_policies?: string;
-  data_residency_locations?: string;
-  encryption_practices?: string;
-  compliance_references?: string;
-  sla_uptime_commitments?: string;
-  support_response_times?: string;
-  data_export_rights?: string;
-  [key: string]: string | undefined;
+  pricing_terms?: string | string[];
+  fee_structures?: string | string[];
+  liability_clauses?: string | string[];
+  indemnification_terms?: string | string[];
+  termination_terms?: string | string[];
+  renewal_terms?: string | string[];
+  data_retention_policies?: string | string[];
+  data_residency_locations?: string | string[];
+  encryption_practices?: string | string[];
+  compliance_references?: string | string[];
+  sla_uptime_commitments?: string | string[];
+  support_response_times?: string | string[];
+  data_export_rights?: string | string[];
+  [key: string]: string | string[] | undefined;
 }
 
 export interface Snapshot {
@@ -49,6 +49,12 @@ export interface ExternalSource {
   source: "news" | "web";
 }
 
+/** Structured risk finding for display (category + finding text). */
+export interface RiskFindingRecord {
+  category: string;
+  finding: string;
+}
+
 export interface RiskEvent {
   _id?: ObjectId;
   vendorId: ObjectId;
@@ -56,6 +62,10 @@ export interface RiskEvent {
   type: string;
   summary: string;
   recommendedAction: string;
+  /** Canonical facts from Reducto structured data (concrete insights, not generic text). */
+  structuredInsights?: string;
+  /** Actionable liabilities and problems extracted from structured data. */
+  riskFindings?: RiskFindingRecord[];
   /** "rules" = Basic Research (rule engine); "ai" = Deep Research (LLM). */
   source?: "rules" | "ai";
   alertSent?: boolean;
