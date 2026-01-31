@@ -6,10 +6,7 @@ import {
 } from "@/lib/db/models";
 import { ObjectId } from "mongodb";
 
-/**
- * DELETE /api/vendors/[id]
- * Remove a vendor and cascade delete snapshots and risk events.
- */
+/** delete vendor and cascade snapshots and risk events */
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

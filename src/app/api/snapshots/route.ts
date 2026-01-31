@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSnapshotsCollection, getVendorsCollection } from "@/lib/db/models";
 import { ObjectId } from "mongodb";
 
-/**
- * GET /api/snapshots?vendorId=xxx
- * Returns latest snapshot(s) with extracted Firecrawl content.
- * If vendorId provided: latest snapshot for that vendor.
- * If not: latest snapshot for each vendor.
- */
+/** get latest snapshot per vendor or for one vendor */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -38,7 +33,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Latest snapshot per vendor
+    // latest snapshot per vendor
     const allVendors = await vendorsCol.find({}).toArray();
     const snapshots: Array<{
       id: string;

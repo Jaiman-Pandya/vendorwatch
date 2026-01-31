@@ -1,6 +1,4 @@
-/**
- * Normalize URL for duplicate detection and display.
- */
+/** normalize url for duplicate detection */
 export function normalizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) return "";
@@ -8,9 +6,7 @@ export function normalizeUrl(url: string): string {
   return `https://${trimmed}`;
 }
 
-/**
- * Get a comparable key for duplicate detection (lowercase, no trailing slash).
- */
+/** get comparable key for duplicate detection */
 export function getWebsiteKey(url: string): string {
   const u = normalizeUrl(url);
   if (!u) return "";
@@ -22,9 +18,7 @@ export function getWebsiteKey(url: string): string {
   }
 }
 
-/**
- * Extract domain for grouping (e.g. "stripe.com").
- */
+/** extract domain for grouping */
 export function getDomain(url: string): string {
   const u = normalizeUrl(url);
   if (!u) return "";

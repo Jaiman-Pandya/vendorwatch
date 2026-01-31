@@ -7,9 +7,7 @@ const resendClient = process.env.RESEND_API_KEY
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "VendorWatch <onboarding@resend.dev>";
 const ALERT_EMAIL = process.env.ALERT_EMAIL;
 
-/**
- * POST /api/alert-test — send one test email to ALERT_EMAIL so the user can verify Resend.
- */
+/** post to send test email to verify resend config */
 export async function POST() {
   if (!resendClient || !ALERT_EMAIL) {
     return NextResponse.json(

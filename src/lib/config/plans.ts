@@ -1,6 +1,4 @@
-/**
- * Plan tiers and vendor (site) limits for companies.
- */
+/** plan tiers and vendor limits */
 
 export type PlanId = "basic" | "premium" | "enterprise";
 
@@ -16,14 +14,14 @@ export const PLAN_LABELS: Record<PlanId, string> = {
   enterprise: "Enterprise",
 };
 
-/** In-memory plan override (demo only). Resets on server restart. */
+/** in-memory plan override, resets on restart */
 let planOverride: PlanId | null = null;
 
 export function setPlanOverride(plan: PlanId | null): void {
   planOverride = plan;
 }
 
-/** Plan from override, then env VENDORWATCH_PLAN. Defaults to basic. */
+/** plan from override or env, defaults to basic */
 export function getCurrentPlan(): PlanId {
   if (planOverride) return planOverride;
   const raw = process.env.VENDORWATCH_PLAN?.toLowerCase().trim();
@@ -33,7 +31,7 @@ export function getCurrentPlan(): PlanId {
   return "basic";
 }
 
-/** Max vendors (sites) allowed for the current plan. */
+/** max vendors allowed for current plan */
 export function getVendorLimit(): number {
   return PLAN_LIMITS[getCurrentPlan()];
 }

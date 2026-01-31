@@ -1,7 +1,4 @@
-/**
- * Structured schema for Reducto output (plan-aligned). Fields can be string or string[].
- * Arrays allow multiple concrete facts per category; rule engine normalizes for comparison.
- */
+/** structured schema for reducto output, fields can be string or string[] */
 export interface VendorStructuredData {
   pricing_terms?: string | string[];
   fee_structures?: string | string[];
@@ -43,10 +40,7 @@ function isEmpty(val: string | string[] | undefined): boolean {
   return toStr(val) === "";
 }
 
-/**
- * Rule-based risk detection from structured data comparison. No LLM.
- * Produces risk events when plan-defined fields change in risk-relevant ways.
- */
+/** rule based risk detection from structured data comparison */
 export function runRuleEngine(
   oldData: VendorStructuredData | null | undefined,
   newData: VendorStructuredData | null | undefined
@@ -55,7 +49,7 @@ export function runRuleEngine(
   const old_ = oldData ?? {};
   const new_ = newData ?? {};
 
-  // Financial: pricing or fees changed
+  // financial, pricing or fees changed
   if (changed(old_.pricing_terms, new_.pricing_terms) || changed(old_.fee_structures, new_.fee_structures)) {
     results.push({
       type: "financial",
@@ -65,7 +59,7 @@ export function runRuleEngine(
     });
   }
 
-  // Legal: liability cap decreased, termination notice increased, indemnification changed
+  // legal, liability or termination or indemnification changed
   if (changed(old_.liability_clauses, new_.liability_clauses)) {
     results.push({
       type: "legal",
@@ -91,7 +85,7 @@ export function runRuleEngine(
     });
   }
 
-  // Security: data residency, compliance refs, retention
+  // security, data residency or compliance or retention
   if (changed(old_.data_residency_locations, new_.data_residency_locations)) {
     results.push({
       type: "security",
@@ -120,7 +114,7 @@ export function runRuleEngine(
     });
   }
 
-  // Operational: SLA, support
+  // operational, sla or support
   if (changed(old_.sla_uptime_commitments, new_.sla_uptime_commitments)) {
     results.push({
       type: "operational",
@@ -141,9 +135,7 @@ export function runRuleEngine(
   return results;
 }
 
-/**
- * Convert first rule result to a single risk analysis (for Basic mode). If no rules fire, return initial/unchanged placeholder.
- */
+/** convert first rule result to risk event, or return fallback */
 export function ruleResultToRiskEvent(
   ruleResults: RuleRiskResult[],
   fallbackSummary: string,

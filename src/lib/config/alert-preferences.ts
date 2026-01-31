@@ -23,9 +23,7 @@ export function setAlertSeverities(severities: AlertSeverity[]): void {
 
 export function getAlertSeverities(): AlertSeverity[] {
   const result = override === null ? parseEnvSeverities() : override;
-  // #region agent log
   debugLog("alert-preferences.ts:getAlertSeverities", "getAlertSeverities", { overrideIsNull: override === null, result, resultLength: result.length }, "H3");
-  // #endregion
   return result;
 }
 

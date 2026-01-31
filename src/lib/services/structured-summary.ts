@@ -1,7 +1,4 @@
-/**
- * Build a canonical human-readable summary from Reducto's structured data.
- * Used when LLM fails or in Basic mode, and to augment alerts with concrete facts.
- */
+/** build canonical summary from reducto structured data */
 
 import type { VendorStructuredData } from "./rule-engine";
 
@@ -33,10 +30,7 @@ function formatValue(arr: string[]): string {
   return arr.map((s, i) => `${i + 1}. ${s}`).join(" ");
 }
 
-/**
- * Build a structured summary from VendorStructuredData.
- * Returns concrete bullet points for each populated field.
- */
+/** build structured summary from vendor data */
 export function buildCanonicalSummary(
   data: VendorStructuredData | Record<string, unknown> | null | undefined
 ): string {
@@ -59,9 +53,7 @@ export function buildCanonicalSummary(
   return sections.join("\n\n");
 }
 
-/**
- * Build a concise single-paragraph summary for emails/alerts.
- */
+/** build concise summary for emails and alerts */
 export function buildConciseSummary(
   data: VendorStructuredData | Record<string, unknown> | null | undefined,
   maxItems = 5

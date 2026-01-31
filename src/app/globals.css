@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Class-based dark mode (default light, dark when .dark on html) */
+/* class-based dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -13,12 +13,12 @@
   --accent-hover: #4338ca;
 }
 
-/* Default: light mode */
+/* default light mode */
 html {
   color-scheme: light;
 }
 
-/* Dark mode when .dark class is on html */
+/* dark mode when .dark on html */
 html.dark {
   color-scheme: dark;
 }
@@ -51,7 +51,7 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Smooth focus rings for accessibility */
+/* focus rings for accessibility */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -60,7 +60,7 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
-/* Refined scrollbar for dark mode */
+/* scrollbar for dark mode */
 html.dark ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

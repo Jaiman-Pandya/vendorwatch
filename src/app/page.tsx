@@ -76,7 +76,7 @@ const severityStyles = {
   low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
 
-/** Parse summary into intro + extracted-terms table rows when format matches. */
+/** parse summary into intro and extracted terms table rows when format matches */
 function parseExtractedTerms(summary: string): { intro: string; rows: { term: string; value: string }[] } | null {
   if (!summary?.trim()) return null;
   const blocks = summary.split(/\n\n+/);

@@ -4,10 +4,10 @@ import type { VendorStructuredData } from "./rule-engine";
 const apiKey = process.env.REDUCTO_API_KEY;
 const reducto = apiKey ? new Reducto({ apiKey }) : null;
 
-/** Alias for rule-engine schema; Reducto may return a subset. */
+/** alias for rule engine schema, reducto may return a subset */
 export type StructuredDocData = Partial<VendorStructuredData> & { summary?: string; [key: string]: unknown };
 
-/** Normalize Reducto output to VendorStructuredData (strings or arrays). */
+/** normalize reducto output to structured data */
 function normalizeToStructured(raw: Record<string, unknown>): VendorStructuredData {
   const out: VendorStructuredData = {};
   const keys = [
@@ -127,10 +127,7 @@ RULES:
 - If a critical term (liability, data location, indemnification) is absent, omit that field (we will flag the gap).
 - Use plain language. Avoid marketing fluff.`;
 
-/**
- * Extract structured data from a vendor document (PDF, Terms URL, Policy URL).
- * Returns canonical VendorStructuredData with arrays of concrete facts.
- */
+/** extract structured data from a vendor document url */
 export async function extractStructuredData(fileUrl: string): Promise<StructuredDocData | null> {
   if (!reducto) {
     console.warn("Reducto API key not configured — skipping document extraction");
@@ -166,12 +163,10 @@ export async function extractStructuredData(fileUrl: string): Promise<Structured
   }
 }
 
-/** Common paths for terms/legal pages when no doc links found in content. */
+/** common paths for terms and legal pages when no doc links found */
 const COMMON_LEGAL_PATHS = ["/legal", "/terms", "/terms-of-service", "/privacy", "/tos", "/terms.html", "/legal.html"];
 
-/**
- * Get URLs to try for Reducto extraction: docLinks first, then base URL + common legal paths.
- */
+/** get urls to try for reducto extraction */
 export function getExtractionUrls(docLinks: string[], baseUrl: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -193,7 +188,7 @@ export function getExtractionUrls(docLinks: string[], baseUrl: string): string[]
         out.push(full);
       }
     }
-    // Also try base URL (homepage may have terms excerpt)
+    // also try base url
     if (!seen.has(origin + "/")) {
       out.push(origin + "/");
     }
@@ -201,12 +196,10 @@ export function getExtractionUrls(docLinks: string[], baseUrl: string): string[]
     // skip invalid base
   }
 
-  return out.slice(0, 4); // Limit to 4 URLs per vendor
+  return out.slice(0, 4);
 }
 
-/**
- * Extract structured data from multiple URLs until one succeeds with data.
- */
+/** extract structured data from multiple urls until one succeeds */
 export async function extractFromUrls(urls: string[]): Promise<StructuredDocData | null> {
   for (const u of urls) {
     const data = await extractStructuredData(u);

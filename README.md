@@ -1,36 +1,92 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VendorWatch
 
-## Getting Started
+VendorWatch is a vendor risk monitoring platform that tracks changes to vendor websites, extracts structured data from terms of service and privacy policies, and surfaces liabilities and risk findings in a structured dashboard.
 
-First, run the development server:
+## Features
+
+- Add vendors by website URL and monitor them on a schedule
+- Scrape vendor sites using Firecrawl and extract content
+- Extract structured data (pricing, liability, compliance, SLA, etc.) from terms and policy documents using Reducto
+- Two research modes: Basic (rule-based) and Deep (AI-powered insights)
+- Risk alerts grouped by Legal, Data and Security, Financial, and Operational categories
+- Email alerts for configurable severities (low, medium, high)
+- Export vendor snapshot data as JSON, CSV, or Markdown
+- Light and dark mode UI
+
+## Prerequisites
+
+- Node.js 18+
+- MongoDB (MongoDB Atlas recommended)
+- API keys for Firecrawl, Resend, Reducto, and optionally Anthropic (for Deep research mode)
+
+## Installation
+
+```bash
+npm install
+```
+
+## Configuration
+
+Copy the example environment file and configure:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Required variables:
+
+| Variable | Description |
+|----------|-------------|
+| MONGODB_URI | MongoDB connection string |
+| FIRECRAWL_API_KEY | Firecrawl API key from firecrawl.dev |
+| RESEND_API_KEY | Resend API key for email alerts |
+| ALERT_EMAIL | Email address for risk alerts |
+| REDUCTO_API_KEY | Reducto API key for document extraction |
+
+Optional variables:
+
+| Variable | Description |
+|----------|-------------|
+| ANTHROPIC_API_KEY | Anthropic API key for Deep research mode (falls back to rule-based when not set) |
+| ALERT_SEVERITIES | Comma-separated severities that trigger email (default: medium,high) |
+| CRON_SECRET | Secret for cron endpoint authentication |
+| VENDORWATCH_PLAN | Plan tier: basic (5 sites), premium (15), enterprise (500) |
+
+## Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## API Endpoints
 
-To learn more about Next.js, take a look at the following resources:
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/vendors | List vendors |
+| POST | /api/vendors | Create vendor |
+| DELETE | /api/vendors/[id] | Delete vendor |
+| GET | /api/snapshots | List snapshots (optionally by vendorId) |
+| GET | /api/snapshots/[vendorId]/latest | Latest snapshot for download |
+| GET | /api/risk-events | List risk events |
+| POST | /api/run-monitor | Trigger monitoring cycle |
+| POST | /api/run-monitor-stream | Streaming monitor with progress |
+| POST | /api/cron/run-monitor | Cron endpoint (requires CRON_SECRET when set) |
+| GET/POST | /api/alert-preferences | Get or set alert severity preferences |
+| POST | /api/alert-test | Send test email |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scheduled Monitoring
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The cron endpoint runs hourly by default (Vercel Cron). Configure CRON_SECRET in production and pass it via Authorization header, x-cron-secret header, or ?secret= query param.
 
-## Deploy on Vercel
+## License
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Proprietary.

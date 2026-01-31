@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
       vendorIds = body.vendorIds.filter((id: unknown) => typeof id === "string");
     }
   } catch {
-    // no body or invalid JSON: monitor all
+    // no body or invalid json, monitor all
   }
 
   const encoder = new TextEncoder();

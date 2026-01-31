@@ -1,7 +1,4 @@
-/**
- * Collection helpers — re-exports for plan compliance.
- * Primary module: db/models.ts
- */
+/** collection helpers, re-exports from models */
 export {
   getVendorsCollection,
   getSnapshotsCollection,

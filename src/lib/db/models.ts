@@ -15,7 +15,7 @@ export interface Vendor {
   createdAt: Date;
 }
 
-/** Structured extraction from Reducto (plan-aligned); used for rule-engine comparison. */
+/** structured extraction from reducto, used for rule engine comparison */
 export interface SnapshotStructuredData {
   pricing_terms?: string | string[];
   fee_structures?: string | string[];
@@ -49,7 +49,7 @@ export interface ExternalSource {
   source: "news" | "web";
 }
 
-/** Structured risk finding for display (category + finding text). */
+/** structured risk finding for display */
 export interface RiskFindingRecord {
   category: string;
   finding: string;
@@ -62,11 +62,11 @@ export interface RiskEvent {
   type: string;
   summary: string;
   recommendedAction: string;
-  /** Canonical facts from Reducto structured data (concrete insights, not generic text). */
+  /** canonical facts from reducto structured data */
   structuredInsights?: string;
-  /** Actionable liabilities and problems extracted from structured data. */
+  /** actionable liabilities extracted from structured data */
   riskFindings?: RiskFindingRecord[];
-  /** "rules" = Basic Research (rule engine); "ai" = Deep Research (LLM). */
+  /** rules for basic research, ai for deep research */
   source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];

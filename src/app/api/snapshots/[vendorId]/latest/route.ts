@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSnapshotsCollection, getVendorsCollection } from "@/lib/db/models";
 import { ObjectId } from "mongodb";
 
-/**
- * GET /api/snapshots/[vendorId]/latest
- * Returns latest snapshot's structured data for download (JSON).
- * Used by "Download Vendor Data" button.
- */
+/** get latest snapshot structured data for download */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ vendorId: string }> }

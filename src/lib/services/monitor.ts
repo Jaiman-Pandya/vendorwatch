@@ -45,12 +45,7 @@ export function resetCancellation() {
   cancelRequested = false;
 }
 
-/**
- * Run one monitoring cycle: for each vendor, scrape, compare hash, store snapshot, create risk event if changed.
- * Supports real-time progress callbacks and cancellation.
- * @param onProgress - optional callback for progress/result events
- * @param vendorIds - optional list of vendor IDs to monitor; if omitted, all vendors are monitored
- */
+/** run one monitoring cycle, scrape and compare per vendor, optional progress callback and vendor filter */
 export async function runMonitorCycle(
   onProgress?: ProgressCallback,
   vendorIds?: string[]
@@ -91,7 +86,7 @@ export async function runMonitorCycle(
     });
 
     try {
-      // Ensure URL has protocol
+      // ensure url has protocol
       let url = vendor.website.trim();
       if (!url.startsWith("http://") && !url.startsWith("https://")) {
         url = `https://${url}`;
@@ -117,13 +112,13 @@ export async function runMonitorCycle(
 
       let extractedText = scrapeResult.markdown ?? "";
 
-      // Fetch last snapshot for this vendor
+      // fetch last snapshot for this vendor
       const lastSnapshot = await snapshotsCol.findOne(
         { vendorId: vendor._id },
         { sort: { createdAt: -1 } }
       );
 
-      // Multi-page crawl of vendor site (only on first snapshot to speed up monitoring)
+      // multi-page crawl on first snapshot only
       let pagesCrawled = 0;
       if (!lastSnapshot) {
         try {
@@ -133,11 +128,11 @@ export async function runMonitorCycle(
             pagesCrawled = crawlResult.pagesCount;
           }
         } catch {
-          // Continue without crawl — don't block monitoring
+          // continue without crawl
         }
       }
 
-      // Search web/news for external risk signals (every cycle)
+      // search web and news for external risk signals
       let externalSources: ExternalSource[] = [];
       try {
         const searchResult = await searchVendorNews(vendorName);
@@ -146,14 +141,14 @@ export async function runMonitorCycle(
           externalSources = searchResult.sources;
         }
       } catch {
-        // Continue without search — don't block monitoring
+        // continue without search
       }
 
       const contentHash = hashContent(extractedText);
       const isDeep = getResearchMode() === "deep";
 
       if (!lastSnapshot) {
-        // Extract structured data from linked docs and common legal paths
+        // extract structured data from linked docs
         let firstStructured: SnapshotStructuredData | undefined;
         try {
           const docLinks = extractDocumentLinks(extractedText, url);
@@ -163,7 +158,7 @@ export async function runMonitorCycle(
             firstStructured = data as SnapshotStructuredData;
           }
         } catch {
-          // continue without structured
+          // skip if extraction fails
         }
 
         await snapshotsCol.insertOne({
@@ -220,10 +215,8 @@ export async function runMonitorCycle(
         );
         if (findingsBasedActions) recommendedAction = findingsBasedActions;
 
-        // #region agent log
         debugLog("monitor.ts:first_snapshot:beforeAlert", "first_snapshot before sendRiskAlert", { vendorName, severity }, "H4");
-        // #endregion
-        // Let sendRiskAlert check user's selected severities (low/medium/high)
+        // send alert based on user severity prefs
         const alertSent = await sendRiskAlert({
           vendorName,
           vendorWebsite: url,
@@ -233,9 +226,7 @@ export async function runMonitorCycle(
           recommendedAction,
         });
 
-        // #region agent log
         debugLog("monitor.ts:first_snapshot:afterAlert", "first_snapshot after sendRiskAlert", { vendorName, alertSent }, "H4");
-        // #endregion
         await riskEventsCol.insertOne({
           vendorId: vendor._id,
           severity,
@@ -284,7 +275,7 @@ export async function runMonitorCycle(
         continue;
       }
 
-      // Extract structured data via Reducto
+      // extract structured data via reducto
       let newStructured: SnapshotStructuredData | undefined;
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
@@ -294,7 +285,7 @@ export async function runMonitorCycle(
           newStructured = data as SnapshotStructuredData;
         }
       } catch {
-        // continue without structured
+        // skip if extraction fails
       }
 
       await snapshotsCol.insertOne({
@@ -354,10 +345,7 @@ export async function runMonitorCycle(
       );
       if (findingsBasedActions) recommendedAction = findingsBasedActions;
 
-      // Let sendRiskAlert check user's selected severities (low/medium/high)
-      // #region agent log
       debugLog("monitor.ts:changed:beforeAlert", "changed before sendRiskAlert", { vendorName, severity }, "H4");
-      // #endregion
       const alertSent = await sendRiskAlert({
         vendorName,
         vendorWebsite: url,
@@ -367,9 +355,7 @@ export async function runMonitorCycle(
         recommendedAction,
       });
 
-      // #region agent log
       debugLog("monitor.ts:changed:afterAlert", "changed after sendRiskAlert", { vendorName, alertSent }, "H4");
-      // #endregion
       const riskEvent: Omit<RiskEvent, "_id"> = {
         vendorId: vendor._id,
         severity,

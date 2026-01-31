@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { buildCanonicalSummary } from "./structured-summary";
 import { extractRiskFindings, buildRecommendedActionsFromFindings } from "./risk-insights";
 
 const anthropic = process.env.ANTHROPIC_API_KEY
@@ -13,7 +12,7 @@ export interface RiskAnalysis {
   recommendedAction: string;
 }
 
-/** Explicit severity rubric used in LLM prompts for consistent risk classification. */
+/** explicit severity rubric for llm prompts */
 export const SEVERITY_GUIDE = `
 SEVERITY DEFINITIONS (use these strictly):
 - low: Cosmetic or routine only. No contract, security, or compliance impact. Examples: nav change, marketing copy, new blog post.
@@ -22,47 +21,40 @@ SEVERITY DEFINITIONS (use these strictly):
 `;
 
 function getContentChangeFallback(structuredData?: Record<string, unknown> | null): RiskAnalysis {
-  const canonical = structuredData && Object.keys(structuredData).length > 0
-    ? buildCanonicalSummary(structuredData)
-    : "";
+  const hasStructured = structuredData && Object.keys(structuredData).length > 0;
   const findings = extractRiskFindings(structuredData);
   const actionsFromFindings = buildRecommendedActionsFromFindings(findings);
   const recommendedAction = actionsFromFindings
     ? actionsFromFindings
-    : canonical
+    : hasStructured
       ? "1) Review the structured data and findings above. 2) Address each risk category per the recommended actions. 3) Run the monitor periodically to detect future changes."
       : "1) Review the extracted content in the dashboard. 2) Run the monitor again after vendor updates documents.";
   return {
     severity: "medium",
     type: "content_change",
-    summary: canonical
-      ? `Vendor page content changed. Extracted terms:\n\n${canonical}`
+    summary: hasStructured
+      ? "Vendor page content changed. Extracted terms:"
       : "Vendor page content changed. No linked Terms/Privacy documents found; review extracted content in the dashboard.",
     recommendedAction,
   };
 }
 
 function getInitialFallback(structuredData?: Record<string, unknown> | null): RiskAnalysis {
-  const canonical = structuredData && Object.keys(structuredData).length > 0
-    ? buildCanonicalSummary(structuredData)
-    : "";
+  const hasStructured = structuredData && Object.keys(structuredData).length > 0;
   const findings = extractRiskFindings(structuredData);
   const actionsFromFindings = buildRecommendedActionsFromFindings(findings);
   const recommendedAction = actionsFromFindings || "1) Run the monitor periodically to detect changes. 2) Review vendor terms and policies as needed.";
   return {
     severity: "low",
     type: "initial_scan",
-    summary: canonical
-      ? `Initial baseline established. Extracted terms:\n\n${canonical}`
+    summary: hasStructured
+      ? "Initial baseline established. Extracted terms:"
       : "Initial baseline established. Content has been stored for future comparison.",
     recommendedAction,
   };
 }
 
-/**
- * Analyze extracted content on first scrape (no previous content to compare).
- * Uses structured data from Reducto as ground truth when available.
- */
+/** analyze first scrape, uses reducto structured data when available */
 export async function analyzeInitialContent(
   vendorName: string,
   content: string,
@@ -123,10 +115,7 @@ Respond with valid JSON only.`;
   }
 }
 
-/**
- * Analyze vendor content change using Claude to determine risk severity and impact.
- * Uses structured data from Reducto as ground truth when available.
- */
+/** analyze vendor content change for risk severity and impact */
 export async function analyzeContentChange(
   vendorName: string,
   oldContent: string,

@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       .limit(50)
       .toArray();
 
-    // Resolve vendor names
+    // resolve vendor names
     const vendorIds = [...new Set(events.map((e) => e.vendorId.toString()))];
     const vendors = await vendorsCol
       .find({ _id: { $in: vendorIds.map((id) => new ObjectId(id)) } })

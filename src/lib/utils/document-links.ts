@@ -1,7 +1,4 @@
-/**
- * Extract document URLs (PDFs, terms, privacy, policy) from markdown content.
- * Returns absolute URLs for use with Reducto.
- */
+/** extract document urls from markdown for reducto */
 export function extractDocumentLinks(
   markdown: string,
   baseUrl: string
@@ -13,7 +10,7 @@ export function extractDocumentLinks(
     const base = new URL(baseUrl);
     const baseOrigin = base.origin;
 
-    // Match markdown links [text](url)
+    // match markdown links
     const mdLinkRegex = /\[[^\]]*\]\(([^)]+)\)/g;
     let m: RegExpExecArray | null;
     while ((m = mdLinkRegex.exec(markdown)) !== null) {
@@ -31,11 +28,11 @@ export function extractDocumentLinks(
           links.push(href);
         }
       } catch {
-        // skip invalid URLs
+        // skip invalid urls
       }
     }
 
-    // Plain PDF URLs
+    // plain pdf urls
     const pdfRegex = /https?:\/\/[^\s\)\]"'<>]+\.pdf/gi;
     while ((m = pdfRegex.exec(markdown)) !== null) {
       const url = m[0];
@@ -45,7 +42,7 @@ export function extractDocumentLinks(
       }
     }
 
-    return links.slice(0, 3); // Limit to 3 docs per vendor
+    return links.slice(0, 3);
   } catch {
     return [];
   }

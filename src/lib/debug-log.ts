@@ -8,7 +8,7 @@ function writeLine(payload: Record<string, unknown>) {
     mkdirSync(dirname(LOG_PATH), { recursive: true });
     appendFileSync(LOG_PATH, JSON.stringify(payload) + "\n");
   } catch {
-    // ignore
+    // skip on error
   }
 }
 

@@ -1,7 +1,4 @@
-/**
- * Parse structured Reducto data into actionable risk findings.
- * Surfaces real liabilities and problems in a structured, interpretable way.
- */
+/** parse reducto structured data into actionable risk findings */
 
 import type { VendorStructuredData } from "./rule-engine";
 
@@ -14,7 +11,7 @@ function toArray(val: unknown): string[] {
 export interface RiskFinding {
   category: "Legal" | "Data & Security" | "Financial" | "Operational";
   finding: string;
-  /** Helps UI style high-concern items */
+  /** helps ui style high-concern items */
   concern?: "high" | "medium" | "low";
 }
 
@@ -34,7 +31,7 @@ const CATEGORY_LABELS: Record<string, RiskFinding["category"]> = {
   support_response_times: "Operational",
 };
 
-/** Fields that indicate high concern when missing or weak */
+/** fields that indicate high concern when missing */
 const HIGH_CONCERN_KEYS = new Set([
   "liability_clauses",
   "data_residency_locations",
@@ -42,18 +39,15 @@ const HIGH_CONCERN_KEYS = new Set([
   "indemnification_terms",
 ]);
 
-/** Convert raw text to a clear, actionable finding. Avoid generic phrases. */
+/** convert raw text to a clear actionable finding */
 function toFinding(key: string, raw: string): string {
   const s = raw.trim();
   if (!s || s.length < 3) return "";
-  // Capitalize first letter
+    // capitalize first letter
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/**
- * Extract actionable risk findings from structured data.
- * Groups by category (Legal, Data & Security, Financial, Operational) and surfaces concrete liabilities.
- */
+/** extract risk findings from structured data, grouped by category */
 export function extractRiskFindings(
   data: VendorStructuredData | Record<string, unknown> | null | undefined
 ): RiskFinding[] {
@@ -70,7 +64,7 @@ export function extractRiskFindings(
     const concern: RiskFinding["concern"] = HIGH_CONCERN_KEYS.has(key) ? "high" : "medium";
 
     if (arr.length === 0) {
-      // Flag gap: critical field not found
+      // flag gap when critical field not found
       if (HIGH_CONCERN_KEYS.has(key)) {
         const gapLabel =
           key === "liability_clauses"
@@ -102,13 +96,13 @@ export function extractRiskFindings(
   return findings;
 }
 
-/** Minimal shape for grouping (from API or extractRiskFindings). */
+/** minimal shape for grouping */
 export interface RiskFindingInput {
   category: string;
   finding: string;
 }
 
-/** Actions by risk category when findings exist. */
+/** actions by risk category when findings exist */
 const CATEGORY_ACTIONS: Record<string, string> = {
   Legal: "Review liability and indemnification terms with legal. Assess if cap and scope align with risk tolerance.",
   "Data & Security": "Confirm data residency and compliance certifications. Update DPA or risk register if needed.",
@@ -116,10 +110,7 @@ const CATEGORY_ACTIONS: Record<string, string> = {
   Operational: "Review SLA and support commitments. Update escalation playbooks.",
 };
 
-/**
- * Build comprehensive recommended actions from risk findings.
- * Labels each risk category and ties actions to specific liabilities.
- */
+/** build recommended actions from risk findings */
 export function buildRecommendedActionsFromFindings(
   findings: RiskFinding[]
 ): string {
@@ -154,9 +145,7 @@ export function buildRecommendedActionsFromFindings(
   return parts.join("\n");
 }
 
-/**
- * Format findings for display: grouped by category.
- */
+/** format findings grouped by category for display */
 export function groupFindingsByCategory(
   findings: RiskFindingInput[]
 ): Array<{ category: string; findings: string[] }> {

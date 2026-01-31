@@ -1,6 +1,4 @@
-/**
- * Format conversion utilities for vendor snapshot exports.
- */
+/** format conversion utilities for vendor snapshot exports */
 
 const FIELD_LABELS: Record<string, string> = {
   pricing_terms: "Pricing",
@@ -32,10 +30,7 @@ export interface SnapshotExportPayload {
   structuredData?: Record<string, unknown>;
 }
 
-/**
- * Convert snapshot payload to CSV.
- * Includes vendor metadata, then structuredData as field,label,value rows.
- */
+/** convert snapshot payload to csv */
 export function toCSV(data: SnapshotExportPayload): string {
   const lines: string[] = ["field,label,value"];
   const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
@@ -61,9 +56,7 @@ export function toCSV(data: SnapshotExportPayload): string {
   return lines.join("\n");
 }
 
-/**
- * Convert snapshot payload to Markdown report.
- */
+/** convert snapshot payload to markdown report */
 export function toMarkdown(data: SnapshotExportPayload): string {
   const lines: string[] = [
     `# VendorWatch: ${data.vendor}`,

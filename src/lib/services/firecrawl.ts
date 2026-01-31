@@ -33,18 +33,12 @@ export interface SearchResult {
   error?: string;
 }
 
-/**
- * Crawl vendor website — scrapes main URL. Handles retries and timeouts.
- * Used for homepage, pricing, and policy page content.
- */
+/** scrape main vendor url */
 export async function crawlVendor(url: string): Promise<ScrapeResult> {
   return scrapeUrl(url);
 }
 
-/**
- * Multi-page crawl of vendor site. Follows links to terms, privacy, pricing, legal.
- * Limit 3 pages to control cost. Use for richer baseline and change detection.
- */
+/** multi-page crawl of vendor site, follows links to terms and legal pages */
 export async function crawlVendorSite(url: string): Promise<CrawlResult> {
   if (!firecrawl) {
     return { success: false, markdown: "", pagesCount: 0, error: "Firecrawl API key not configured" };
@@ -90,10 +84,7 @@ export async function crawlVendorSite(url: string): Promise<CrawlResult> {
   }
 }
 
-/**
- * Search the web for vendor + risk keywords (breach, security, layoffs, etc.).
- * Returns news and web results for external risk intelligence.
- */
+/** search web for vendor plus risk keywords, returns news and web results */
 export async function searchVendorNews(vendorName: string): Promise<SearchResult> {
   if (!firecrawl) {
     return { success: false, sources: [], markdown: "", error: "Firecrawl API key not configured" };
@@ -137,10 +128,7 @@ export async function searchVendorNews(vendorName: string): Promise<SearchResult
   }
 }
 
-/**
- * Scrape a single URL and return markdown/text content.
- * Uses Firecrawl with retries and timeout per the backend plan.
- */
+/** scrape single url and return markdown content */
 export async function scrapeUrl(url: string): Promise<ScrapeResult> {
   if (!firecrawl) {
     return {

@@ -12,7 +12,7 @@ function debugLog(payload: Record<string, unknown>) {
   } catch (_) {}
 }
 
-// Same as alert-test route: read env at send time so we use the same config as the working test email
+// read env at send time, same as alert test route
 function getResendConfig() {
   const apiKey = process.env.RESEND_API_KEY;
   const to = process.env.ALERT_EMAIL;
@@ -30,45 +30,34 @@ export interface AlertParams {
   recommendedAction: string;
 }
 
-/**
- * Send email alert only when severity is in the selected preferences (low/medium/high).
- * Requires RESEND_API_KEY and ALERT_EMAIL in env.
- */
+/** send email alert when severity matches user prefs, needs resend api key and alert email */
 export async function sendRiskAlert(params: AlertParams): Promise<boolean> {
   const { resendClient, to, from } = getResendConfig();
   const hasKey = !!process.env.RESEND_API_KEY;
   const hasEmail = !!process.env.ALERT_EMAIL;
   const severitiesList = getAlertSeverities();
   const willSendByPrefs = shouldSendAlert(params.severity);
-  // #region agent log
   const entryPayload = {location:'alert.ts:sendRiskAlert:entry',message:'sendRiskAlert entry',data:{hasKey,hasEmail,severity:params.severity,vendorName:params.vendorName,severitiesList,willSendByPrefs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'};
   fetch('http://127.0.0.1:7242/ingest/5f816a8f-caa0-4d2f-afb0-8fbdd38b89a4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entryPayload)}).catch(()=>{});
   debugLog(entryPayload);
-  // #endregion
   if (!resendClient || !to) {
-    // #region agent log
     const earlyPayload = {location:'alert.ts:sendRiskAlert:earlyReturn',message:'early return no client or no email',data:{hasKey,hasEmail},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'};
     fetch('http://127.0.0.1:7242/ingest/5f816a8f-caa0-4d2f-afb0-8fbdd38b89a4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(earlyPayload)}).catch(()=>{});
     debugLog(earlyPayload);
-    // #endregion
     return false;
   }
   if (!shouldSendAlert(params.severity)) {
-    // #region agent log
     const prefsPayload = {location:'alert.ts:sendRiskAlert:earlyReturnPrefs',message:'early return severity not in prefs',data:{severity:params.severity,severitiesList},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'};
     fetch('http://127.0.0.1:7242/ingest/5f816a8f-caa0-4d2f-afb0-8fbdd38b89a4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(prefsPayload)}).catch(()=>{});
     debugLog(prefsPayload);
-    // #endregion
     return false;
   }
 
   try {
-    // #region agent log
     const beforePayload = {location:'alert.ts:sendRiskAlert:beforeSend',message:'calling Resend API',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'};
     fetch('http://127.0.0.1:7242/ingest/5f816a8f-caa0-4d2f-afb0-8fbdd38b89a4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(beforePayload)}).catch(()=>{});
     debugLog(beforePayload);
-    // #endregion
-    // Same call shape as alert-test route: from, to: [ALERT_EMAIL], subject, html
+    // same call shape as alert test route
     const { error } = await resendClient.emails.send({
       from,
       to: [to],
@@ -88,21 +77,15 @@ export async function sendRiskAlert(params: AlertParams): Promise<boolean> {
     });
 
     if (error) {
-      // #region agent log
       debugLog({ location: "alert.ts:sendRiskAlert:resendError", message: "Resend API error", data: { errorMessage: String((error as { message?: string })?.message ?? error), errorName: (error as { name?: string })?.name }, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H5" });
-      // #endregion
       console.error("Resend alert error:", error);
       return false;
     }
-    // #region agent log
     debugLog({ location: "alert.ts:sendRiskAlert:success", message: "email sent", data: {}, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H5" });
-    // #endregion
     return true;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    // #region agent log
     debugLog({ location: "alert.ts:sendRiskAlert:catch", message: "Resend throw", data: { errMsg }, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H5" });
-    // #endregion
     console.error("Resend alert failed:", err);
     return false;
   }

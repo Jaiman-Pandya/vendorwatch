@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { runMonitorCycle } from "@/lib/services/monitor";
 
-/**
- * POST /api/run-monitor
- * Triggers one full monitoring cycle.
- * Useful for demos and testing without waiting for cron.
- */
+/** post to trigger one full monitoring cycle */
 export async function POST() {
   try {
     const results = await runMonitorCycle();
