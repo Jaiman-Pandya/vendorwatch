@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const severities = raw
       .filter((s: unknown) => typeof s === "string" && VALID.includes(s as AlertSeverity))
       .map((s: string) => s as AlertSeverity);
-    setAlertSeverities(severities.length ? severities : null);
+    setAlertSeverities(severities);
     return NextResponse.json({
       severities: getAlertSeverities(),
       emailConfigured: Boolean(process.env.RESEND_API_KEY && process.env.ALERT_EMAIL),

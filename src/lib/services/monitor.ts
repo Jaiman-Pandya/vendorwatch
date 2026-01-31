@@ -1,11 +1,15 @@
+import { ObjectId } from "mongodb";
 import { getVendorsCollection, getSnapshotsCollection, getRiskEventsCollection } from "../db/models";
-import type { RiskEvent, ExternalSource } from "../db/models";
+import type { RiskEvent, ExternalSource, SnapshotStructuredData } from "../db/models";
 import { hashContent } from "./hashing";
 import { crawlVendor, crawlVendorSite, searchVendorNews } from "./firecrawl";
 import { extractStructuredData } from "./reducto";
 import { extractDocumentLinks } from "../utils/document-links";
+import { runRuleEngine, ruleResultToRiskEvent, type VendorStructuredData } from "./rule-engine";
+import { getResearchMode } from "../config/research-mode";
 import { analyzeContentChange, analyzeInitialContent } from "./llm-analysis";
 import { sendRiskAlert } from "./alert";
+import { debugLog } from "../debug-log";
 
 export interface MonitorResult {
   vendorId: string;
@@ -42,14 +46,25 @@ export function resetCancellation() {
 /**
  * Run one monitoring cycle: for each vendor, scrape, compare hash, store snapshot, create risk event if changed.
  * Supports real-time progress callbacks and cancellation.
+ * @param onProgress - optional callback for progress/result events
+ * @param vendorIds - optional list of vendor IDs to monitor; if omitted, all vendors are monitored
  */
-export async function runMonitorCycle(onProgress?: ProgressCallback): Promise<MonitorResult[]> {
+export async function runMonitorCycle(
+  onProgress?: ProgressCallback,
+  vendorIds?: string[]
+): Promise<MonitorResult[]> {
   resetCancellation();
   const vendorsCol = await getVendorsCollection();
   const snapshotsCol = await getSnapshotsCollection();
   const riskEventsCol = await getRiskEventsCollection();
 
-  const vendors = await vendorsCol.find({}).toArray();
+  let vendors = await vendorsCol.find({}).toArray();
+  if (vendorIds && vendorIds.length > 0) {
+    const validIds = vendorIds
+      .filter((id) => id && /^[a-f0-9A-F]{24}$/.test(id))
+      .map((id) => new ObjectId(id));
+    vendors = vendors.filter((v) => v._id && validIds.some((oid) => oid.equals(v._id!)));
+  }
   const results: MonitorResult[] = [];
   const total = vendors.length;
 
@@ -133,35 +148,82 @@ export async function runMonitorCycle(onProgress?: ProgressCallback): Promise<Mo
       }
 
       const contentHash = hashContent(extractedText);
+      const isDeep = getResearchMode() === "deep";
 
       if (!lastSnapshot) {
-        // First snapshot - store it and run initial risk analysis
+        // First snapshot: optionally extract structured from linked docs, then store
+        let firstStructured: SnapshotStructuredData | undefined;
+        try {
+          const docLinks = extractDocumentLinks(extractedText, url);
+          for (const docUrl of docLinks) {
+            const data = await extractStructuredData(docUrl);
+            if (data && Object.keys(data).length > 0) {
+              firstStructured = data as SnapshotStructuredData;
+              break;
+            }
+          }
+        } catch {
+          // continue without structured
+        }
+
         await snapshotsCol.insertOne({
           vendorId: vendor._id,
           contentHash,
           extractedText,
+          structuredData: firstStructured,
           createdAt: new Date(),
         });
 
-        const analysis = await analyzeInitialContent(vendorName, extractedText);
+        let severity: "low" | "medium" | "high";
+        let type: string;
+        let summary: string;
+        let recommendedAction: string;
+        let source: "rules" | "ai" = "ai";
 
-        const alertSent =
-          analysis.severity !== "low" &&
-          (await sendRiskAlert({
-            vendorName,
-            vendorWebsite: url,
-            severity: analysis.severity,
-            type: analysis.type,
-            summary: analysis.summary,
-            recommendedAction: analysis.recommendedAction,
-          }));
+        if (isDeep) {
+          const analysis = await analyzeInitialContent(vendorName, extractedText);
+          severity = analysis.severity;
+          type = analysis.type;
+          summary = analysis.summary;
+          recommendedAction = analysis.recommendedAction;
+          source = "ai";
+        } else {
+          const ruleResults = runRuleEngine(null, firstStructured ?? null);
+          const ruleEvent = ruleResultToRiskEvent(
+            ruleResults,
+            "Initial baseline established. Content stored for future comparison.",
+            "1) Run the monitor periodically to detect changes. 2) Review vendor terms as needed."
+          );
+          severity = ruleEvent.severity;
+          type = ruleEvent.type;
+          summary = ruleEvent.summary;
+          recommendedAction = ruleEvent.recommendedAction;
+          source = "rules";
+        }
 
+        // #region agent log
+        debugLog("monitor.ts:first_snapshot:beforeAlert", "first_snapshot before sendRiskAlert", { vendorName, severity }, "H4");
+        // #endregion
+        // Let sendRiskAlert check user's selected severities (low/medium/high)
+        const alertSent = await sendRiskAlert({
+          vendorName,
+          vendorWebsite: url,
+          severity,
+          type,
+          summary,
+          recommendedAction,
+        });
+
+        // #region agent log
+        debugLog("monitor.ts:first_snapshot:afterAlert", "first_snapshot after sendRiskAlert", { vendorName, alertSent }, "H4");
+        // #endregion
         await riskEventsCol.insertOne({
           vendorId: vendor._id,
-          severity: analysis.severity,
-          type: analysis.type,
-          summary: analysis.summary,
-          recommendedAction: analysis.recommendedAction,
+          severity,
+          type,
+          summary,
+          recommendedAction,
+          source,
           alertSent,
           externalSources: externalSources.length > 0 ? externalSources : undefined,
           createdAt: new Date(),
@@ -201,55 +263,86 @@ export async function runMonitorCycle(onProgress?: ProgressCallback): Promise<Mo
         continue;
       }
 
-      // Content changed - store new snapshot
-      await snapshotsCol.insertOne({
-        vendorId: vendor._id,
-        contentHash,
-        extractedText,
-        createdAt: new Date(),
-      });
-
-      // Extract linked documents (PDFs, terms, policy) via Reducto
-      let structuredData: Record<string, unknown> | null = null;
+      // Extract structured data via Reducto first, then store new snapshot with it
+      let newStructured: SnapshotStructuredData | undefined;
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
         for (const docUrl of docLinks) {
           const data = await extractStructuredData(docUrl);
-          if (data) {
-            structuredData = { ...(structuredData ?? {}), ...data };
-            break; // Use first successful extraction to limit cost
+          if (data && Object.keys(data).length > 0) {
+            newStructured = data as SnapshotStructuredData;
+            break;
           }
         }
       } catch {
-        // Continue without structured data — don't block monitoring
+        // continue without structured
       }
 
-      // LLM risk analysis (with optional Reducto structured data)
-      const analysis = await analyzeContentChange(
-        vendorName,
-        lastSnapshot.extractedText,
+      await snapshotsCol.insertOne({
+        vendorId: vendor._id,
+        contentHash,
         extractedText,
-        structuredData
-      );
+        structuredData: newStructured,
+        createdAt: new Date(),
+      });
 
-      // Send Resend alert for medium/high severity (if configured)
-      const alertSent =
-        analysis.severity !== "low" &&
-        (await sendRiskAlert({
+      const prevStructured = (lastSnapshot as { structuredData?: VendorStructuredData }).structuredData ?? null;
+      const ruleResults = runRuleEngine(prevStructured, (newStructured ?? null) as VendorStructuredData);
+
+      let severity: "low" | "medium" | "high";
+      let type: string;
+      let summary: string;
+      let recommendedAction: string;
+      let source: "rules" | "ai" = "ai";
+
+      if (isDeep) {
+        const analysis = await analyzeContentChange(
           vendorName,
-          vendorWebsite: url,
-          severity: analysis.severity,
-          type: analysis.type,
-          summary: analysis.summary,
-          recommendedAction: analysis.recommendedAction,
-        }));
+          lastSnapshot.extractedText,
+          extractedText,
+          newStructured ?? null
+        );
+        severity = analysis.severity;
+        type = analysis.type;
+        summary = analysis.summary;
+        recommendedAction = analysis.recommendedAction;
+        source = "ai";
+      } else {
+        const ruleEvent = ruleResultToRiskEvent(
+          ruleResults,
+          "Vendor content changed. No structured field changes detected by rules; review extracted content.",
+          "1) Review the extracted content in the dashboard. 2) Run monitor again after vendor updates documents."
+        );
+        severity = ruleEvent.severity;
+        type = ruleEvent.type;
+        summary = ruleEvent.summary;
+        recommendedAction = ruleEvent.recommendedAction;
+        source = "rules";
+      }
 
+      // Let sendRiskAlert check user's selected severities (low/medium/high)
+      // #region agent log
+      debugLog("monitor.ts:changed:beforeAlert", "changed before sendRiskAlert", { vendorName, severity }, "H4");
+      // #endregion
+      const alertSent = await sendRiskAlert({
+        vendorName,
+        vendorWebsite: url,
+        severity,
+        type,
+        summary,
+        recommendedAction,
+      });
+
+      // #region agent log
+      debugLog("monitor.ts:changed:afterAlert", "changed after sendRiskAlert", { vendorName, alertSent }, "H4");
+      // #endregion
       const riskEvent: Omit<RiskEvent, "_id"> = {
         vendorId: vendor._id,
-        severity: analysis.severity,
-        type: analysis.type,
-        summary: analysis.summary,
-        recommendedAction: analysis.recommendedAction,
+        severity,
+        type,
+        summary,
+        recommendedAction,
+        source,
         alertSent,
         externalSources: externalSources.length > 0 ? externalSources : undefined,
         createdAt: new Date(),

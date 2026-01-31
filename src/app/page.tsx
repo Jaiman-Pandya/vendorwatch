@@ -24,6 +24,7 @@ interface RiskEvent {
   type: string;
   summary: string;
   recommendedAction?: string;
+  source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];
   createdAt: string;
@@ -70,6 +71,8 @@ const typeLabels: Record<string, string> = {
   security: "Security",
   sla: "SLA",
   compliance: "Compliance",
+  financial: "Financial",
+  operational: "Operational",
   content_change: "Content Change",
   initial_scan: "Initial Scan",
   other: "Other",
@@ -143,6 +146,9 @@ export default function Home() {
   const [alertEmailMasked, setAlertEmailMasked] = useState<string | null>(null);
   const [savingAlerts, setSavingAlerts] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([]);
+  const [researchMode, setResearchMode] = useState<"basic" | "deep">("deep");
+  const [savingResearchMode, setSavingResearchMode] = useState(false);
 
   const fetchPlan = async () => {
     try {
@@ -156,9 +162,19 @@ export default function Home() {
   const fetchVendors = async () => {
     try {
       const res = await fetch("/api/vendors");
-      if (res.ok) setVendors(await res.json());
+      if (res.ok) {
+        const list = await res.json();
+        setVendors(list);
+        setSelectedVendorIds((prev) => {
+          const ids = (list as Vendor[]).map((v) => v.id);
+          if (prev.length === 0) return ids;
+          const kept = prev.filter((id) => ids.includes(id));
+          return ids.length > 0 && kept.length === 0 ? ids : kept.length ? kept : ids;
+        });
+      }
     } catch {
       setVendors([]);
+      setSelectedVendorIds([]);
     }
   };
 
@@ -200,12 +216,25 @@ export default function Home() {
     }
   };
 
+  const fetchResearchMode = async () => {
+    try {
+      const res = await fetch("/api/research-mode");
+      if (res.ok) {
+        const data = await res.json();
+        setResearchMode(data.mode ?? "deep");
+      }
+    } catch {
+      setResearchMode("deep");
+    }
+  };
+
   useEffect(() => {
     fetchPlan();
     fetchVendors();
     fetchRiskEvents();
     fetchSnapshots();
     fetchAlertPreferences();
+    fetchResearchMode();
   }, []);
 
   const atVendorLimit = plan ? plan.vendorsUsed >= plan.vendorLimit : false;
@@ -289,14 +318,25 @@ export default function Home() {
     }
   };
 
+  const monitorTargetCount = selectedVendorIds.length;
+
   const handleRunMonitor = async () => {
+    const idsToRun = selectedVendorIds.length > 0 ? [...selectedVendorIds] : [];
+    if (idsToRun.length === 0) {
+      setError("Select at least one site to monitor.");
+      return;
+    }
     setMonitoring(true);
-    setMonitorProgress({ current: 0, total: vendors.length });
+    setMonitorProgress({ current: 0, total: idsToRun.length });
     setMonitorResults(null);
     clearMessages();
-    
+
     try {
-      const response = await fetch("/api/run-monitor-stream", { method: "POST" });
+      const response = await fetch("/api/run-monitor-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorIds: idsToRun }),
+      });
       if (!response.ok) throw new Error("Monitor failed");
       if (!response.body) throw new Error("No response body");
 
@@ -317,14 +357,14 @@ export default function Home() {
           if (data.type === "progress") {
             setMonitorProgress({
               current: data.current || 0,
-              total: data.total || vendors.length,
+              total: data.total || idsToRun.length,
               vendorName: data.vendorName,
             });
           } else if (data.type === "result") {
             if (data.result) allResults.push(data.result);
             setMonitorProgress({
               current: data.current || 0,
-              total: data.total || vendors.length,
+              total: data.total || idsToRun.length,
             });
           } else if (data.type === "complete") {
             setMonitorResults(data.results || allResults);
@@ -415,6 +455,30 @@ export default function Home() {
     );
   };
 
+  const handleSetResearchMode = async (mode: "basic" | "deep") => {
+    setSavingResearchMode(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/research-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Save failed");
+      }
+      const data = await res.json();
+      setResearchMode(data.mode ?? mode);
+      setSuccessMessage(`Research mode: ${(data.mode ?? mode) === "deep" ? "Deep (AI)" : "Basic (rules)"}`);
+      setTimeout(() => setSuccessMessage(null), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingResearchMode(false);
+    }
+  };
+
   const navItems: { id: Tab; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "vendors", label: "Vendors", count: vendors.length },
@@ -495,14 +559,14 @@ export default function Home() {
                 Stop Monitor
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleRunMonitor}
-                disabled={vendors.length === 0}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Run Monitor
-              </button>
+            <button
+              type="button"
+              onClick={handleRunMonitor}
+              disabled={vendors.length === 0 || monitorTargetCount === 0}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Run Monitor {monitorTargetCount > 0 ? `(${monitorTargetCount})` : ""}
+            </button>
             )}
           </div>
         </div>
@@ -514,7 +578,7 @@ export default function Home() {
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`border-b-2 px-4 py-3 text-sm font-medium transition ${
+                className={`border-b-2 px-4 py-3 text-sm font-medium transition duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
                   tab === t.id
                     ? "border-indigo-600 text-indigo-600 dark:border-indigo-500 dark:text-indigo-400"
                     : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
@@ -575,28 +639,188 @@ export default function Home() {
 
         {/* Overview */}
         {tab === "overview" && (
-          <div className="space-y-8">
+          <div className="space-y-8 transition-opacity duration-300">
             <section>
               <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Summary</h2>
               <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Vendors Monitored</p>
                   <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{vendors.length}</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Risk Alerts</p>
                   <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{riskEvents.length}</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Snapshots Stored</p>
                   <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{snapshots.length}</p>
                 </div>
               </div>
             </section>
 
+            {vendors.length > 0 && (
+              <section>
+                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Sites to monitor</h2>
+                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                    Choose which sites to include when you run the monitor. Run Monitor will only process the selected sites.
+                  </p>
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVendorIds(vendors.map((v) => v.id))}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVendorIds([])}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Deselect all
+                    </button>
+                    <span className="flex items-center py-1.5 text-sm text-slate-500 dark:text-slate-400">
+                      {selectedVendorIds.length} of {vendors.length} selected
+                    </span>
+                  </div>
+                  <ul className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+                    {vendors.map((v) => (
+                      <li key={v.id} className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id={`monitor-${v.id}`}
+                          checked={selectedVendorIds.includes(v.id)}
+                          onChange={() => {
+                            setSelectedVendorIds((prev) =>
+                              prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
+                            );
+                          }}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
+                        />
+                        <label htmlFor={`monitor-${v.id}`} className="flex-1 cursor-pointer text-sm text-slate-700 dark:text-slate-300">
+                          <span className="font-medium">{v.name}</span>
+                          <span className="ml-2 text-slate-500 dark:text-slate-400">{v.website}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            )}
+
+            <section>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Research mode</h2>
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                  Basic: rule-based detection from structured data only (no LLM). Deep: adds Claude AI for richer summaries and recommendations.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSetResearchMode("basic")}
+                    disabled={savingResearchMode}
+                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                      researchMode === "basic"
+                        ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300"
+                        : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    Basic (rules)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetResearchMode("deep")}
+                    disabled={savingResearchMode}
+                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                      researchMode === "deep"
+                        ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300"
+                        : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    Deep (AI)
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Pipeline</h2>
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Firecrawl</span>
+                  <span className="text-slate-400">+</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Crawl</span>
+                  <span className="text-slate-400">+</span>
+                  <span className="rounded-lg bg-indigo-100 px-3 py-1.5 font-medium text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300">Web Search</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Hash</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Reducto</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">{researchMode === "deep" ? "Rules + Claude" : "Rules"}</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Resend</span>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Email alerts</h2>
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                  Choose which severities trigger an email (any combination of low, medium, high).
+                </p>
+                <div className="mb-4 flex flex-wrap gap-4">
+                  {(["low", "medium", "high"] as const).map((s) => (
+                    <label key={s} className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={alertSeverities.includes(s)}
+                        onChange={() => toggleAlertSeverity(s)}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
+                      />
+                      <span className={`text-sm font-medium capitalize rounded px-2 py-0.5 ${severityStyles[s]}`}>
+                        {s}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                  {alertEmailConfigured ? (
+                    <>Emails sent to: <strong>{alertEmailMasked ?? "—"}</strong></>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      Set RESEND_API_KEY and ALERT_EMAIL in .env.local to receive emails.
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveAlertPreferences}
+                    disabled={savingAlerts}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                  >
+                    {savingAlerts ? "Saving…" : "Save preferences"}
+                  </button>
+                  {alertEmailConfigured && (
+                    <button
+                      type="button"
+                      onClick={handleSendTestEmail}
+                      disabled={sendingTest}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                    >
+                      {sendingTest ? "Sending…" : "Send test email"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+
             {monitorResults && monitorResults.length > 0 && (
               <section>
-                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Last Monitor Run</h2>
+                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Last monitor run</h2>
                 <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                   <table className="w-full text-sm">
                     <thead>
@@ -613,7 +837,7 @@ export default function Home() {
                             <div className="flex flex-wrap items-center gap-2 text-slate-600 dark:text-slate-400">
                               {r.status === "first_snapshot" && <span>First scrape</span>}
                               {r.status === "unchanged" && <span>No changes</span>}
-                              {r.status === "changed" && <span>Change detected → Claude + alert</span>}
+                              {r.status === "changed" && <span>Change detected → alert</span>}
                               {r.status === "error" && <span className="text-red-600 dark:text-red-400">Error: {r.error ?? "Unknown"}</span>}
                               {r.status !== "error" && r.pagesCrawled != null && r.pagesCrawled > 0 && (
                                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700">{r.pagesCrawled} pages crawled</span>
@@ -630,27 +854,6 @@ export default function Home() {
                 </div>
               </section>
             )}
-
-            <section>
-              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Pipeline</h2>
-              <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-                <div className="flex flex-wrap items-center gap-4 text-sm">
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Firecrawl Scrape</span>
-                  <span className="text-slate-400">+</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Multi-page Crawl</span>
-                  <span className="text-slate-400">+</span>
-                  <span className="rounded-lg bg-indigo-100 px-3 py-1.5 font-medium text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300">Web Search</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Hash Compare</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Reducto (PDFs)</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Claude</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Resend</span>
-                </div>
-              </div>
-            </section>
           </div>
         )}
 
@@ -804,7 +1007,7 @@ export default function Home() {
             <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Risk Alerts</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Claude AI analysis. Sources: vendor site (scrape + crawl) + external web/news search. Medium/high triggers Resend.
+                Rule-based (Basic) or AI-enhanced (Deep). Source shown per alert. Medium/high can trigger email.
               </p>
             </div>
             {loading ? (
@@ -817,16 +1020,26 @@ export default function Home() {
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {riskEvents.map((event) => (
-                  <li key={event.id} className="p-6">
+                  <li key={event.id} className="p-6 transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-slate-900 dark:text-white">{event.vendor}</span>
                           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${severityStyles[event.severity]}`}>
                             {event.severity}
                           </span>
                           <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                             {typeLabels[event.type] ?? event.type}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              event.source === "rules"
+                                ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                                : "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                            }`}
+                            title={event.source === "rules" ? "Rule-based detection (Basic mode)" : "AI analysis (Deep mode)"}
+                          >
+                            {event.source === "rules" ? "Rules" : "AI"}
                           </span>
                           {event.alertSent && (
                             <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">

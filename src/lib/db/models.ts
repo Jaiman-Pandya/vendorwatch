@@ -15,11 +15,30 @@ export interface Vendor {
   createdAt: Date;
 }
 
+/** Structured extraction from Reducto (plan-aligned); used for rule-engine comparison. */
+export interface SnapshotStructuredData {
+  pricing_terms?: string;
+  fee_structures?: string;
+  liability_clauses?: string;
+  indemnification_terms?: string;
+  termination_terms?: string;
+  renewal_terms?: string;
+  data_retention_policies?: string;
+  data_residency_locations?: string;
+  encryption_practices?: string;
+  compliance_references?: string;
+  sla_uptime_commitments?: string;
+  support_response_times?: string;
+  data_export_rights?: string;
+  [key: string]: string | undefined;
+}
+
 export interface Snapshot {
   _id?: ObjectId;
   vendorId: ObjectId;
   contentHash: string;
   extractedText: string;
+  structuredData?: SnapshotStructuredData;
   createdAt: Date;
 }
 
@@ -37,6 +56,8 @@ export interface RiskEvent {
   type: string;
   summary: string;
   recommendedAction: string;
+  /** "rules" = Basic Research (rule engine); "ai" = Deep Research (LLM). */
+  source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];
   createdAt: Date;

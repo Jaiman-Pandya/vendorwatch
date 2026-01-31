@@ -1,3 +1,5 @@
+import { debugLog } from "../debug-log";
+
 export type AlertSeverity = "low" | "medium" | "high";
 
 const SEVERITIES: AlertSeverity[] = ["low", "medium", "high"];
@@ -15,12 +17,16 @@ function parseEnvSeverities(): AlertSeverity[] {
 
 let override: AlertSeverity[] | null = null;
 
-export function setAlertSeverities(severities: AlertSeverity[] | null): void {
-  override = severities.length ? severities : null;
+export function setAlertSeverities(severities: AlertSeverity[]): void {
+  override = severities;
 }
 
 export function getAlertSeverities(): AlertSeverity[] {
-  return override ?? parseEnvSeverities();
+  const result = override === null ? parseEnvSeverities() : override;
+  // #region agent log
+  debugLog("alert-preferences.ts:getAlertSeverities", "getAlertSeverities", { overrideIsNull: override === null, result, resultLength: result.length }, "H3");
+  // #endregion
+  return result;
 }
 
 export function shouldSendAlert(severity: AlertSeverity): boolean {
