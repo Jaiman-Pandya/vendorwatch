@@ -1,155 +1,934 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const MOCK_RISK_ALERTS = [
-  {
-    id: "1",
-    vendor: "Acme Corp",
-    severity: "high",
-    message: "Security breach reported in supply chain",
-    timestamp: "2 hours ago",
-  },
-  {
-    id: "2",
-    vendor: "TechSupply Inc",
-    severity: "medium",
-    message: "Financial instability indicators detected",
-    timestamp: "5 hours ago",
-  },
-  {
-    id: "3",
-    vendor: "Global Logistics",
-    severity: "low",
-    message: "Compliance documentation overdue",
-    timestamp: "1 day ago",
-  },
-  {
-    id: "4",
-    vendor: "DataVault Services",
-    severity: "high",
-    message: "Data privacy audit failed",
-    timestamp: "2 days ago",
-  },
-];
+interface Vendor {
+  id: string;
+  name: string;
+  website: string;
+  createdAt: string;
+}
+
+interface ExternalSource {
+  url: string;
+  title?: string;
+  snippet?: string;
+  source: "news" | "web";
+}
+
+interface RiskEvent {
+  id: string;
+  vendor: string;
+  vendorId: string;
+  severity: "low" | "medium" | "high";
+  type: string;
+  summary: string;
+  recommendedAction?: string;
+  alertSent?: boolean;
+  externalSources?: ExternalSource[];
+  createdAt: string;
+}
+
+interface MonitorResult {
+  vendorId: string;
+  vendorName: string;
+  status: "unchanged" | "changed" | "error" | "first_snapshot";
+  error?: string;
+  riskEventCreated?: boolean;
+  pagesCrawled?: number;
+  externalSourcesFound?: number;
+}
+
+interface Snapshot {
+  id: string;
+  vendorId: string;
+  vendorName: string;
+  extractedText: string;
+  contentHash: string;
+  createdAt: string;
+}
+
+type Tab = "overview" | "vendors" | "alerts" | "content";
+
+interface PlanInfo {
+  plan: string;
+  planLabel: string;
+  vendorLimit: number;
+  vendorsUsed: number;
+  vendorsRemaining: number;
+}
 
 const severityStyles = {
-  high: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-  low: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  high: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  low: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
 
+const typeLabels: Record<string, string> = {
+  pricing: "Pricing",
+  legal: "Legal",
+  security: "Security",
+  sla: "SLA",
+  compliance: "Compliance",
+  content_change: "Content Change",
+  initial_scan: "Initial Scan",
+  other: "Other",
+};
+
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function getDomain(url: string): string {
+  const u = normalizeUrl(url);
+  if (!u) return "";
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+}
+
+function groupVendorsByDomain(vendors: Vendor[]): Array<{ domain: string; vendors: Vendor[] }> {
+  const byDomain = new Map<string, Vendor[]>();
+  const sorted = [...vendors].sort((a, b) => a.name.localeCompare(b.name));
+  for (const v of sorted) {
+    const domain = getDomain(v.website) || "unknown";
+    if (!byDomain.has(domain)) byDomain.set(domain, []);
+    byDomain.get(domain)!.push(v);
+  }
+  return Array.from(byDomain.entries())
+    .map(([domain, vs]) => ({ domain, vendors: vs }))
+    .sort((a, b) => a.domain.localeCompare(b.domain));
+}
+
 export default function Home() {
+  const [tab, setTab] = useState<Tab>("overview");
   const [vendorName, setVendorName] = useState("");
   const [vendorWebsite, setVendorWebsite] = useState("");
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [monitoring, setMonitoring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [monitorResults, setMonitorResults] = useState<MonitorResult[] | null>(null);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [plan, setPlan] = useState<PlanInfo | null>(null);
+  const [planDropdownOpen, setPlanDropdownOpen] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [monitorProgress, setMonitorProgress] = useState<{ current: number; total: number; vendorName?: string } | null>(null);
+  const [alertSeverities, setAlertSeverities] = useState<("low" | "medium" | "high")[]>([]);
+  const [alertEmailConfigured, setAlertEmailConfigured] = useState(false);
+  const [alertEmailMasked, setAlertEmailMasked] = useState<string | null>(null);
+  const [savingAlerts, setSavingAlerts] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Mock: would call API in real implementation
-    console.log("Add vendor:", { vendorName, vendorWebsite });
-    setVendorName("");
-    setVendorWebsite("");
+  const fetchPlan = async () => {
+    try {
+      const res = await fetch("/api/plan");
+      if (res.ok) setPlan(await res.json());
+    } catch {
+      setPlan(null);
+    }
   };
 
+  const fetchVendors = async () => {
+    try {
+      const res = await fetch("/api/vendors");
+      if (res.ok) setVendors(await res.json());
+    } catch {
+      setVendors([]);
+    }
+  };
+
+  const fetchRiskEvents = async () => {
+    try {
+      const res = await fetch("/api/risk-events");
+      if (res.ok) setRiskEvents(await res.json());
+    } catch {
+      setRiskEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSnapshots = async () => {
+    try {
+      const res = await fetch("/api/snapshots");
+      if (res.ok) {
+        const data = await res.json();
+        setSnapshots(data.snapshots ?? []);
+      }
+    } catch {
+      setSnapshots([]);
+    }
+  };
+
+  const fetchAlertPreferences = async () => {
+    try {
+      const res = await fetch("/api/alert-preferences");
+      if (res.ok) {
+        const data = await res.json();
+        setAlertSeverities(data.severities ?? ["medium", "high"]);
+        setAlertEmailConfigured(Boolean(data.emailConfigured));
+        setAlertEmailMasked(data.emailMasked ?? null);
+      }
+    } catch {
+      setAlertSeverities(["medium", "high"]);
+      setAlertEmailConfigured(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlan();
+    fetchVendors();
+    fetchRiskEvents();
+    fetchSnapshots();
+    fetchAlertPreferences();
+  }, []);
+
+  const atVendorLimit = plan ? plan.vendorsUsed >= plan.vendorLimit : false;
+
+  const handleUpgradePlan = async (newPlan: string) => {
+    setUpgrading(true);
+    setPlanDropdownOpen(false);
+    try {
+      const res = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: newPlan }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Upgrade failed");
+      }
+      setPlan(await res.json());
+      setSuccessMessage(`Upgraded to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upgrade failed");
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
+  const clearMessages = () => {
+    setError(null);
+    setSuccessMessage(null);
+    setMonitorResults(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    clearMessages();
+    try {
+      const website = normalizeUrl(vendorWebsite);
+      if (!website) throw new Error("Please enter a valid website URL");
+      const res = await fetch("/api/vendors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: vendorName.trim(), website }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to add vendor");
+      }
+      setVendorName("");
+      setVendorWebsite("");
+      setSuccessMessage(`Added "${vendorName.trim()}". Run monitor to scrape.`);
+      await fetchVendors();
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add vendor");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteVendor = async (id: string, name: string) => {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/vendors/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to remove");
+      }
+      setSuccessMessage(`Removed ${name}`);
+      setConfirmDelete(null);
+      setError(null);
+      await fetchVendors();
+      await fetchRiskEvents();
+      await fetchSnapshots();
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove vendor");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleRunMonitor = async () => {
+    setMonitoring(true);
+    setMonitorProgress({ current: 0, total: vendors.length });
+    setMonitorResults(null);
+    clearMessages();
+    
+    try {
+      const response = await fetch("/api/run-monitor-stream", { method: "POST" });
+      if (!response.ok) throw new Error("Monitor failed");
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const allResults: MonitorResult[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
+
+        for (const line of lines) {
+          const data = JSON.parse(line.slice(6));
+          
+          if (data.type === "progress") {
+            setMonitorProgress({
+              current: data.current || 0,
+              total: data.total || vendors.length,
+              vendorName: data.vendorName,
+            });
+          } else if (data.type === "result") {
+            if (data.result) allResults.push(data.result);
+            setMonitorProgress({
+              current: data.current || 0,
+              total: data.total || vendors.length,
+            });
+          } else if (data.type === "complete") {
+            setMonitorResults(data.results || allResults);
+            setMonitorProgress({ current: data.results?.length || allResults.length, total: data.results?.length || allResults.length });
+            
+            const changed = (data.results || allResults).filter((r: MonitorResult) => r.status === "changed").length;
+            const first = (data.results || allResults).filter((r: MonitorResult) => r.status === "first_snapshot").length;
+            const errors = (data.results || allResults).filter((r: MonitorResult) => r.status === "error").length;
+            
+            if (changed > 0) {
+              setSuccessMessage(`Analyzed ${changed} change(s). Risk alerts created.`);
+            } else if (first > 0) {
+              setSuccessMessage(`Scraped ${first} vendor(s). Run again later to detect changes.`);
+            } else if (errors > 0) {
+              setError(`${errors} vendor(s) failed.`);
+            } else if ((data.results || allResults).length === 0) {
+              setSuccessMessage("No vendors to monitor.");
+            } else {
+              setSuccessMessage("All vendors unchanged.");
+            }
+            
+            await fetchRiskEvents();
+            await fetchSnapshots();
+            break;
+          } else if (data.type === "error") {
+            throw new Error(data.error || "Monitor failed");
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Monitor failed");
+    } finally {
+      setMonitoring(false);
+      setTimeout(() => setMonitorProgress(null), 2000);
+    }
+  };
+
+  const handleCancelMonitor = async () => {
+    try {
+      await fetch("/api/run-monitor-cancel", { method: "POST" });
+      setSuccessMessage("Monitoring cancelled. Showing partial results.");
+    } catch (err) {
+      console.error("Cancel failed:", err);
+    }
+  };
+
+  const handleSaveAlertPreferences = async () => {
+    setSavingAlerts(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/alert-preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ severities: alertSeverities }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Save failed");
+      }
+      setSuccessMessage("Email preferences saved.");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setSendingTest(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/alert-test", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Send failed");
+      setSuccessMessage("Test email sent. Check your inbox (and spam).");
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  const toggleAlertSeverity = (s: "low" | "medium" | "high") => {
+    setAlertSeverities((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    );
+  };
+
+  const navItems: { id: Tab; label: string; count?: number }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "vendors", label: "Vendors", count: vendors.length },
+    { id: "alerts", label: "Risk Alerts", count: riskEvents.length },
+    { id: "content", label: "Extracted Content", count: snapshots.length },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <main className="mx-auto max-w-6xl px-6 py-12">
-        {/* Header */}
-        <header className="mb-12">
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-5xl">
-            VendorWatch
-          </h1>
-          <p className="mt-3 text-lg text-slate-600 dark:text-slate-400">
-            Monitor vendor risk in real time. Track security, financial, and
-            compliance signals across your supply chain.
-          </p>
-        </header>
-
-        {/* Cards grid */}
-        <div className="grid gap-8 lg:grid-cols-2">
-          {/* Add Vendor Card */}
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">
-              Add Vendor
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="vendor-name"
-                  className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300"
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
+      {/* Header */}
+      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white font-semibold">
+              V
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">VendorWatch</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Vendor risk monitoring</p>
+            </div>
+            {plan && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPlanDropdownOpen(!planDropdownOpen)}
+                  disabled={upgrading}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50"
                 >
-                  Vendor Name
-                </label>
-                <input
-                  id="vendor-name"
-                  type="text"
-                  value={vendorName}
-                  onChange={(e) => setVendorName(e.target.value)}
-                  placeholder="e.g. Acme Corp"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500"
-                  required
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="vendor-website"
-                  className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300"
-                >
-                  Website
-                </label>
-                <input
-                  id="vendor-website"
-                  type="url"
-                  value={vendorWebsite}
-                  onChange={(e) => setVendorWebsite(e.target.value)}
-                  placeholder="https://example.com"
-                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
-              >
-                Add Vendor
-              </button>
-            </form>
-          </div>
-
-          {/* Recent Risk Alerts Card */}
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">
-              Recent Risk Alerts
-            </h2>
-            <ul className="space-y-3">
-              {MOCK_RISK_ALERTS.map((alert) => (
-                <li
-                  key={alert.id}
-                  className="rounded-lg border border-slate-200 p-4 dark:border-slate-700"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900 dark:text-white">
-                        {alert.vendor}
-                      </p>
-                      <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-                        {alert.message}
-                      </p>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{plan.planLabel}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {plan.vendorsUsed} / {plan.vendorLimit} sites
+                  </span>
+                  <svg className="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {planDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setPlanDropdownOpen(false)} aria-hidden="true" />
+                    <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                      {(["basic", "premium", "enterprise"] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => handleUpgradePlan(p)}
+                          className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-700 ${
+                            plan.plan === p
+                              ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300"
+                              : "text-slate-700 dark:text-slate-300"
+                          }`}
+                        >
+                          <span>{p.charAt(0).toUpperCase() + p.slice(1)}</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {p === "basic" ? "5" : p === "premium" ? "15" : "500"} sites
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${severityStyles[alert.severity as keyof typeof severityStyles]}`}
-                    >
-                      {alert.severity}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-500">
-                    {alert.timestamp}
-                  </p>
-                </li>
-              ))}
-            </ul>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { fetchPlan(); fetchVendors(); fetchRiskEvents(); fetchSnapshots(); setSuccessMessage("Refreshed"); setTimeout(() => setSuccessMessage(null), 2000); }}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Refresh
+            </button>
+            {monitoring ? (
+              <button
+                type="button"
+                onClick={handleCancelMonitor}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
+              >
+                Stop Monitor
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRunMonitor}
+                disabled={vendors.length === 0}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Run Monitor
+              </button>
+            )}
           </div>
         </div>
+        {/* Tabs */}
+        <nav className="mx-auto max-w-7xl px-6">
+          <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+            {navItems.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`border-b-2 px-4 py-3 text-sm font-medium transition ${
+                  tab === t.id
+                    ? "border-indigo-600 text-indigo-600 dark:border-indigo-500 dark:text-indigo-400"
+                    : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                }`}
+              >
+                {t.label}
+                {t.count !== undefined && t.count > 0 && (
+                  <span className="ml-1.5 rounded-full bg-slate-200 px-1.5 py-0.5 text-xs dark:bg-slate-700">
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        {/* Progress bar */}
+        {monitorProgress && (
+          <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="font-medium text-indigo-900 dark:text-indigo-100">
+                Monitoring vendors... {monitorProgress.current} / {monitorProgress.total}
+              </span>
+              <span className="text-indigo-700 dark:text-indigo-300">
+                {Math.round((monitorProgress.current / monitorProgress.total) * 100)}%
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-800">
+              <div
+                className="h-full rounded-full bg-indigo-600 transition-all duration-300 dark:bg-indigo-400"
+                style={{ width: `${(monitorProgress.current / monitorProgress.total) * 100}%` }}
+              />
+            </div>
+            {monitorProgress.vendorName && (
+              <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">
+                Processing: {monitorProgress.vendorName}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">
+              Main scrape + web search (~30s/vendor). First-time: +3-page crawl (~90s extra)
+            </p>
+          </div>
+        )}
+
+        {/* Messages */}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300">
+            {error}
+          </div>
+        )}
+        {successMessage && (
+          <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
+            {successMessage}
+          </div>
+        )}
+
+        {/* Overview */}
+        {tab === "overview" && (
+          <div className="space-y-8">
+            <section>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Summary</h2>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Vendors Monitored</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{vendors.length}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Risk Alerts</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{riskEvents.length}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Snapshots Stored</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{snapshots.length}</p>
+                </div>
+              </div>
+            </section>
+
+            {monitorResults && monitorResults.length > 0 && (
+              <section>
+                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Last Monitor Run</h2>
+                <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-700">
+                        <th className="px-4 py-3 text-left font-medium text-slate-700 dark:text-slate-300">Vendor</th>
+                        <th className="px-4 py-3 text-left font-medium text-slate-700 dark:text-slate-300">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monitorResults.map((r) => (
+                        <tr key={r.vendorId} className="border-b border-slate-100 dark:border-slate-800">
+                          <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{r.vendorName}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2 text-slate-600 dark:text-slate-400">
+                              {r.status === "first_snapshot" && <span>First scrape</span>}
+                              {r.status === "unchanged" && <span>No changes</span>}
+                              {r.status === "changed" && <span>Change detected → Claude + alert</span>}
+                              {r.status === "error" && <span className="text-red-600 dark:text-red-400">Error: {r.error ?? "Unknown"}</span>}
+                              {r.status !== "error" && r.pagesCrawled != null && r.pagesCrawled > 0 && (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700">{r.pagesCrawled} pages crawled</span>
+                              )}
+                              {r.status !== "error" && r.externalSourcesFound != null && r.externalSourcesFound > 0 && (
+                                <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300">{r.externalSourcesFound} external sources</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            <section>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Pipeline</h2>
+              <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center gap-4 text-sm">
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Firecrawl Scrape</span>
+                  <span className="text-slate-400">+</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Multi-page Crawl</span>
+                  <span className="text-slate-400">+</span>
+                  <span className="rounded-lg bg-indigo-100 px-3 py-1.5 font-medium text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300">Web Search</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Hash Compare</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Reducto (PDFs)</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Claude</span>
+                  <span className="text-slate-400">→</span>
+                  <span className="rounded-lg bg-slate-100 px-3 py-1.5 font-medium dark:bg-slate-800">Resend</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* Vendors */}
+        {tab === "vendors" && (
+          <div className="grid gap-8 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Add Vendor</h2>
+              {atVendorLimit && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+                  <p className="mb-3 text-sm font-medium text-amber-800 dark:text-amber-200">
+                    Vendor limit reached ({plan?.vendorLimit} sites on {plan?.planLabel}).
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(["premium", "enterprise"] as const)
+                      .filter((p) => p !== plan?.plan)
+                      .map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => handleUpgradePlan(p)}
+                          disabled={upgrading}
+                          className="rounded-lg bg-amber-200 px-3 py-1.5 text-sm font-medium text-amber-900 transition hover:bg-amber-300 disabled:opacity-50 dark:bg-amber-800 dark:text-amber-100 dark:hover:bg-amber-700"
+                        >
+                          Upgrade to {p.charAt(0).toUpperCase() + p.slice(1)} ({p === "premium" ? "15" : "500"} sites)
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
+                  <input
+                    type="text"
+                    value={vendorName}
+                    onChange={(e) => setVendorName(e.target.value)}
+                    placeholder="e.g. Stripe"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2.5 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Website</label>
+                  <input
+                    type="text"
+                    value={vendorWebsite}
+                    onChange={(e) => setVendorWebsite(e.target.value)}
+                    placeholder="https://stripe.com"
+                    className="w-full rounded-lg border border-slate-300 px-4 py-2.5 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitting || atVendorLimit}
+                  className="w-full rounded-lg bg-indigo-600 py-2.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? "Adding…" : atVendorLimit ? "Limit reached" : "Add Vendor"}
+                </button>
+              </form>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Monitored Vendors</h2>
+              <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                Grouped by domain. Duplicate websites are blocked when adding.
+              </p>
+              {vendors.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-200 py-12 text-center dark:border-slate-700">
+                  <p className="text-slate-500 dark:text-slate-400">No vendors yet.</p>
+                  <p className="mt-1 text-sm text-slate-400">Add one above to get started.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {groupVendorsByDomain(vendors).map(({ domain, vendors: groupVendors }) => (
+                    <div key={domain}>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{domain}</span>
+                        {groupVendors.length > 1 && (
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            {groupVendors.length} entries
+                          </span>
+                        )}
+                      </div>
+                      <ul className="space-y-2">
+                        {groupVendors.map((v) => (
+                          <li
+                            key={v.id}
+                            className="group flex items-center justify-between gap-2 rounded-lg border border-slate-100 p-3 transition hover:border-slate-200 dark:border-slate-800 dark:hover:border-slate-700"
+                          >
+                            {confirmDelete === v.id ? (
+                              <>
+                                <span className="text-sm text-slate-600 dark:text-slate-400">Remove {v.name}?</span>
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDelete(null)}
+                                    className="rounded px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteVendor(v.id, v.name)}
+                                    disabled={deletingId === v.id}
+                                    className="rounded bg-red-600 px-2 py-1 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    {deletingId === v.id ? "Removing…" : "Remove"}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-medium text-slate-900 dark:text-white">{v.name}</span>
+                                  <a
+                                    href={normalizeUrl(v.website)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-2 text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+                                  >
+                                    {v.website}
+                                  </a>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDelete(v.id)}
+                                  className="shrink-0 rounded p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-800 dark:hover:text-red-400"
+                                  title="Remove vendor"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Risk Alerts */}
+        {tab === "alerts" && (
+          <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Risk Alerts</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Claude AI analysis. Sources: vendor site (scrape + crawl) + external web/news search. Medium/high triggers Resend.
+              </p>
+            </div>
+            {loading ? (
+              <div className="p-8 text-center text-slate-500">Loading…</div>
+            ) : riskEvents.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 py-16 text-center dark:border-slate-700">
+                <p className="text-slate-500 dark:text-slate-400">No alerts yet.</p>
+                <p className="mt-1 text-sm text-slate-400">Add vendors and run the monitor to detect changes.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {riskEvents.map((event) => (
+                  <li key={event.id} className="p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900 dark:text-white">{event.vendor}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${severityStyles[event.severity]}`}>
+                            {event.severity}
+                          </span>
+                          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            {typeLabels[event.type] ?? event.type}
+                          </span>
+                          {event.alertSent && (
+                            <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                              Email sent
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 text-slate-600 dark:text-slate-400">{event.summary}</p>
+                        {event.recommendedAction && (
+                          <p className="mt-2 text-sm">
+                            <span className="font-medium text-slate-700 dark:text-slate-300">Recommended:</span>{" "}
+                            <span className="text-slate-600 dark:text-slate-400">{event.recommendedAction}</span>
+                          </p>
+                        )}
+                        {event.externalSources && event.externalSources.length > 0 && (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+                            <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">External sources (news/web)</p>
+                            <ul className="space-y-1.5">
+                              {event.externalSources.map((src, i) => (
+                                <li key={i}>
+                                  <a
+                                    href={src.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+                                  >
+                                    {src.title || src.url}
+                                  </a>
+                                  {src.snippet && (
+                                    <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{src.snippet}</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs text-slate-500 dark:text-slate-500">{formatTimestamp(event.createdAt)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Extracted Content */}
+        {tab === "content" && (
+          <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Extracted Content</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Vendor site (scrape + multi-page crawl) + external web/news search. Run monitor to populate.
+              </p>
+            </div>
+            {snapshots.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 py-16 text-center dark:border-slate-700">
+                <p className="text-slate-500 dark:text-slate-400">No extracted content yet.</p>
+                <p className="mt-1 text-sm text-slate-400">Run the monitor to scrape vendor sites.</p>
+              </div>
+            ) : (
+              <div className="p-6">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {snapshots.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedSnapshot(selectedSnapshot?.id === s.id ? null : s)}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                        selectedSnapshot?.id === s.id
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      {s.vendorName}
+                    </button>
+                  ))}
+                </div>
+                {selectedSnapshot && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {selectedSnapshot.vendorName} — {formatTimestamp(selectedSnapshot.createdAt)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSnapshot(null)}
+                        className="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-white p-4 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                      {selectedSnapshot.extractedText || "(empty)"}
+                    </pre>
+                    <p className="mt-2 text-xs text-slate-500">{selectedSnapshot.extractedText.length} chars</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
