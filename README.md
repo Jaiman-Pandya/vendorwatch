@@ -13,7 +13,6 @@ VendorWatch is a vendor risk monitoring system that tracks changes to what third
 ![Team Picture](images/team.jpeg)
 This was an ambitious project to undertake in the eight hour time-frame allotted. Grateful to experience something new with everyone I met, and
 immense recognition to my teammate Aryansh Shrivastava (UC Berkeley) for developing this project with me! 
-
 <br />
 
 ## Tech Stack Broad Overview
