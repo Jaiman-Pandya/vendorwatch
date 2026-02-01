@@ -371,3 +371,7 @@ Without `CRON_SECRET`, the endpoint accepts unauthenticated requests (suitable o
 ## License
 
 Proprietary.
+
+## Closing Notes
+This was an ambitious project to undertake in the eight hour time-frame allotted. Grateful to experience something new with everyone I met, and
+recognition to my teammate Aryansh Shrivastava (UC Berkeley) for developing this with me. 
