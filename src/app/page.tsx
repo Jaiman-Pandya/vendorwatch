@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { toCSV, toMarkdown } from "@/lib/services/exportFormats";
 import { useTheme } from "@/lib/theme-provider";
-import { groupFindingsByCategory } from "@/lib/services/risk-insights";
+import { groupFindingsByCategory, extractRiskFindings } from "@/lib/services/risk-insights";
 import { structuredDataToTableRows } from "@/lib/services/structured-summary";
+import { formalizeValue, formalizeValueMultiline, parseForBold } from "@/lib/utils/format-display";
 
 interface Vendor {
   id: string;
@@ -102,9 +103,44 @@ function parseExtractedTerms(summary: string): { intro: string; rows: { term: st
   return { intro: intro.trim(), rows };
 }
 
-/** build table rows from risk findings (category = term, finding = value) */
+/** build table rows from risk findings, one row per category with all findings combined, formalized, bullet-separated */
 function riskFindingsToTableRows(findings: { category: string; finding: string }[]): { term: string; value: string }[] {
-  return findings.map((f) => ({ term: f.category, value: f.finding }));
+  const byTerm = new Map<string, string[]>();
+  for (const f of findings) {
+    if (!byTerm.has(f.category)) byTerm.set(f.category, []);
+    byTerm.get(f.category)!.push(formalizeValue(f.finding));
+  }
+  return Array.from(byTerm.entries()).map(([term, values]) => ({
+    term,
+    value: values.map((v) => `• ${v}`).join("\n\n"),
+  }));
+}
+
+/** render value with bold on amounts, percentages, years; handles multiline */
+function FormalizedValue({ text }: { text: string }) {
+  const blocks = text.split(/\n\n+/);
+  return (
+    <>
+      {blocks.map((block, bi) => {
+        const segments = parseForBold(block);
+        if (segments.length <= 1 && !segments[0]?.bold) {
+          return <span key={bi}>{block}</span>;
+        }
+        return (
+          <span key={bi}>
+            {bi > 0 && <><br /><br /></>}
+            {segments.map((s, i) =>
+              s.bold ? (
+                <strong key={i} className="font-semibold text-slate-800 dark:text-slate-200">{s.text}</strong>
+              ) : (
+                <span key={i}>{s.text}</span>
+              )
+            )}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 const typeLabels: Record<string, string> = {
@@ -1159,21 +1195,14 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                            <span>Source: {event.source === "rules" ? "Rules" : "Insights"}</span>
-                            {grouped.length > 0 && (
-                              <>
-                                <span>·</span>
-                                <span>Findings: Reducto (Terms/Policy)</span>
-                              </>
-                            )}
-                            {event.externalSources && event.externalSources.length > 0 && (
-                              <>
-                                <span>·</span>
-                                <span>External: News & Web</span>
-                              </>
-                            )}
-                          </div>
+                          {(grouped.length > 0 || (event.externalSources && event.externalSources.length > 0)) && (
+                            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                              <span>Findings:</span>
+                              {grouped.length > 0 && <span>Reducto (Terms/Policy)</span>}
+                              {grouped.length > 0 && event.externalSources && event.externalSources.length > 0 && <span>·</span>}
+                              {event.externalSources && event.externalSources.length > 0 && <span>News & Web</span>}
+                            </div>
+                          )}
                           {grouped.length > 0 ? (
                             <div className="mt-4 grid gap-4 sm:grid-cols-2">
                               {grouped.map(({ category, findings }) => (
@@ -1183,7 +1212,7 @@ export default function Home() {
                                     {findings.map((finding, i) => (
                                       <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                                         <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500 dark:bg-indigo-400" aria-hidden="true" />
-                                        <span>{finding}</span>
+                                        <span><FormalizedValue text={formalizeValue(finding)} /></span>
                                       </li>
                                     ))}
                                   </ul>
@@ -1198,9 +1227,13 @@ export default function Home() {
                                   ? riskFindingsToTableRows(event.riskFindings)
                                   : [];
                                 const parsed = parseExtractedTerms(event.summary);
+                                const parsedRows = parsed?.rows?.map((r) => ({
+                                  term: formalizeValue(r.term),
+                                  value: formalizeValueMultiline(r.value),
+                                })) ?? [];
                                 const rows = findingsRows.length > 0
                                   ? findingsRows
-                                  : parsed?.rows ?? [];
+                                  : parsedRows;
                                 if (rows.length > 0) {
                                   return (
                                     <>
@@ -1218,8 +1251,10 @@ export default function Home() {
                                           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                                             {rows.map((row, i) => (
                                               <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                                                <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300">{row.term}</td>
-                                                <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{row.value}</td>
+                                                <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200">{row.term}</td>
+                                                <td className="whitespace-pre-wrap px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
+                                                  <FormalizedValue text={row.value} />
+                                                </td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -1360,27 +1395,55 @@ export default function Home() {
                       </div>
                     )}
                     {selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0 && (
-                      <div className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
-                        <p className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                          Extracted terms
-                        </p>
-                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                          <thead>
-                            <tr>
-                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Term</th>
-                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Value</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                      <>
+                        {(() => {
+                          const findings = extractRiskFindings(selectedSnapshot.structuredData);
+                          const grouped = groupFindingsByCategory(findings.map((f) => ({ category: f.category, finding: f.finding })));
+                          return grouped.length > 0 ? (
+                            <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+                              <p className="mb-3 text-sm font-semibold text-indigo-900 dark:text-indigo-100">Insights</p>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                {grouped.map(({ category, findings: catFindings }) => (
+                                  <div key={category} className="rounded border border-indigo-200/80 bg-white p-3 dark:border-indigo-800 dark:bg-slate-900/50">
+                                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">{category}</p>
+                                    <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+                                      {catFindings.map((f, i) => (
+                                        <li key={i} className="flex gap-2">
+                                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" aria-hidden="true" />
+                                          <span><FormalizedValue text={formalizeValue(f)} /></span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+                        <div className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+                          <p className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                            Extracted Terms
+                          </p>
+                          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                            <thead>
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Term</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Value</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                             {structuredDataToTableRows(selectedSnapshot.structuredData).map((row, i) => (
                               <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                                <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300">{row.term}</td>
-                                <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{row.value}</td>
+                                <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200">{row.term}</td>
+                                <td className="whitespace-pre-wrap px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
+                                  <FormalizedValue text={row.value} />
+                                </td>
                               </tr>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
                     )}
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-white p-4 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
                       {selectedSnapshot.extractedText || "(empty)"}

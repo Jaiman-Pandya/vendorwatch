@@ -6,7 +6,9 @@ import { crawlVendor, crawlVendorSite, searchVendorNews } from "./firecrawl";
 import { extractFromUrls, getExtractionUrls } from "./reducto";
 import { filterStructuredData } from "./relevanceFilter";
 import { looksHallucinated } from "./extraction-validation";
+import { isRelevantVendorUrl } from "./urlFilter";
 import { extractDocumentLinks } from "../utils/document-links";
+import { getDomain } from "../utils/url";
 import { buildCanonicalSummary, buildConciseSummary } from "./structured-summary";
 import { extractRiskFindings, buildRecommendedActionsFromFindings } from "./risk-insights";
 import { runRuleEngine, ruleResultToRiskEvent, type VendorStructuredData } from "./rule-engine";
@@ -286,7 +288,12 @@ export async function runMonitorCycle(
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
         const urlsToTry = getExtractionUrls(docLinks, url);
-        const result = await extractFromUrls(urlsToTry);
+        const vendorDomain = getDomain(url);
+        const relevantUrls = urlsToTry.filter((u) => isRelevantVendorUrl(vendorDomain, u));
+        if (relevantUrls.length === 0 && urlsToTry.length > 0) {
+          console.warn("⚠ No policy/pricing/legal URLs found for vendor", vendorName);
+        }
+        const result = await extractFromUrls(relevantUrls);
         if (result && Object.keys(result.data).length > 0) {
           if (!looksHallucinated(result.data, result.sourceUrl, extractedText)) {
             newStructured = filterStructuredData(result.data) as SnapshotStructuredData;

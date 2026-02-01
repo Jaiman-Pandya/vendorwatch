@@ -1,19 +1,21 @@
 /** format conversion utilities for vendor snapshot exports */
 
+import { formalizeValue } from "@/lib/utils/format-display";
+
 const FIELD_LABELS: Record<string, string> = {
   pricing_terms: "Pricing",
-  fee_structures: "Fee structures",
+  fee_structures: "Fee Structures",
   liability_clauses: "Liability",
   indemnification_terms: "Indemnification",
   termination_terms: "Termination",
   renewal_terms: "Renewal",
-  data_retention_policies: "Data retention",
-  data_residency_locations: "Data residency",
+  data_retention_policies: "Data Retention",
+  data_residency_locations: "Data Residency",
   encryption_practices: "Encryption",
   compliance_references: "Compliance",
-  sla_uptime_commitments: "SLA & uptime",
+  sla_uptime_commitments: "SLA & Uptime",
   support_response_times: "Support",
-  data_export_rights: "Data export",
+  data_export_rights: "Data Export",
 };
 
 function toArray(val: unknown): string[] {
@@ -49,7 +51,7 @@ export function toCSV(data: SnapshotExportPayload): string {
       lines.push(`${esc(key)},${esc(label)},`);
     } else {
       arr.forEach((val) => {
-        lines.push(`${esc(key)},${esc(label)},${esc(val)}`);
+        lines.push(`${esc(key)},${esc(label)},${esc(formalizeValue(val))}`);
       });
     }
   }
@@ -83,7 +85,7 @@ export function toMarkdown(data: SnapshotExportPayload): string {
       lines.push(`### ${label}`);
       lines.push("");
       for (const val of arr) {
-        lines.push(`- ${val}`);
+        lines.push(`- ${formalizeValue(val)}`);
       }
       lines.push("");
     }

@@ -1,21 +1,22 @@
 /** build canonical summary from reducto structured data */
 
 import type { VendorStructuredData } from "./rule-engine";
+import { formalizeValueMultiline } from "@/lib/utils/format-display";
 
 const FIELD_LABELS: Record<string, string> = {
   pricing_terms: "Pricing",
-  fee_structures: "Fee structures",
+  fee_structures: "Fee Structures",
   liability_clauses: "Liability",
   indemnification_terms: "Indemnification",
   termination_terms: "Termination",
   renewal_terms: "Renewal",
-  data_retention_policies: "Data retention",
-  data_residency_locations: "Data residency",
+  data_retention_policies: "Data Retention",
+  data_residency_locations: "Data Residency",
   encryption_practices: "Encryption",
   compliance_references: "Compliance",
-  sla_uptime_commitments: "SLA & uptime",
+  sla_uptime_commitments: "SLA & Uptime",
   support_response_times: "Support",
-  data_export_rights: "Data export",
+  data_export_rights: "Data Export",
 };
 
 function toArray(val: unknown): string[] {
@@ -26,8 +27,9 @@ function toArray(val: unknown): string[] {
 
 function formatValue(arr: string[]): string {
   if (arr.length === 0) return "";
-  if (arr.length === 1) return arr[0];
-  return arr.map((s, i) => `${i + 1}. ${s}`).join(" ");
+  const formalized = arr.map((s) => formalizeValueMultiline(s.trim())).filter(Boolean);
+  if (formalized.length === 1) return formalized[0];
+  return formalized.map((s, i) => `${i + 1}. ${s}`).join(" ");
 }
 
 /** build structured summary from vendor data */
@@ -53,7 +55,20 @@ export function buildCanonicalSummary(
   return sections.join("\n\n");
 }
 
-/** convert structured data to term/value table rows for display */
+/** split run-on text into discrete items (split on sentence boundaries or concatenated clauses) */
+function splitIntoItems(s: string): string[] {
+  const trimmed = s.trim();
+  if (!trimmed) return [];
+  const bySentence = trimmed.split(/(?<=[.!?])\s+/).map((p) => p.trim()).filter(Boolean);
+  if (bySentence.length > 1) return bySentence;
+  const byConcat = trimmed.split(/(?<=[a-z])(?=[A-Z])|(?<=\d)(?=[A-Z])/).map((p) => p.trim()).filter((p) => p.length > 2);
+  if (byConcat.length > 1) return byConcat;
+  const byDoubleSpace = trimmed.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (byDoubleSpace.length > 1) return byDoubleSpace;
+  return [trimmed];
+}
+
+/** convert structured data to term/value table rows, one row per term with all values combined, bullet-separated */
 export function structuredDataToTableRows(
   data: VendorStructuredData | Record<string, unknown> | null | undefined
 ): Array<{ term: string; value: string }> {
@@ -66,11 +81,15 @@ export function structuredDataToTableRows(
     const arr = toArray(raw);
     if (arr.length === 0) continue;
     const label = FIELD_LABELS[key] ?? key.replace(/_/g, " ");
+    const items: string[] = [];
     for (const v of arr) {
-      if (v && typeof v === "string" && v.trim()) {
-        rows.push({ term: label, value: v.trim() });
+      if (typeof v !== "string" || !v.trim()) continue;
+      for (const part of splitIntoItems(v.trim())) {
+        items.push(formalizeValueMultiline(part));
       }
     }
+    const combined = [...new Set(items)].map((item) => `• ${item}`).join("\n\n");
+    if (combined) rows.push({ term: label, value: combined });
   }
   return rows;
 }
