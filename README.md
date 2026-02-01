@@ -216,7 +216,7 @@ cp .env.local.example .env.local
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| MONGODB_URI | Yes | MongoDB connection string (e.g. `mongodb+srv://user:pass@cluster.mongodb.net/vendorwatch`) |
+| MONGODB_URI | Yes | MongoDB Atlas connection string (see `.env.local.example` for format) |
 | FIRECRAWL_API_KEY | Yes | From [firecrawl.dev](https://firecrawl.dev) |
 | REDUCTO_API_KEY | Yes | From [reducto.ai](https://reducto.ai) for document extraction |
 | RESEND_API_KEY | Yes | From [resend.com](https://resend.com) for email alerts |
