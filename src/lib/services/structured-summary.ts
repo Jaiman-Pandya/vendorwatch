@@ -53,6 +53,28 @@ export function buildCanonicalSummary(
   return sections.join("\n\n");
 }
 
+/** convert structured data to term/value table rows for display */
+export function structuredDataToTableRows(
+  data: VendorStructuredData | Record<string, unknown> | null | undefined
+): Array<{ term: string; value: string }> {
+  if (!data || typeof data !== "object") return [];
+  const rows: Array<{ term: string; value: string }> = [];
+  const skipKeys = new Set(["summary", "rawText", "extractedText"]);
+  for (const key of Object.keys(FIELD_LABELS)) {
+    if (skipKeys.has(key)) continue;
+    const raw = data[key];
+    const arr = toArray(raw);
+    if (arr.length === 0) continue;
+    const label = FIELD_LABELS[key] ?? key.replace(/_/g, " ");
+    for (const v of arr) {
+      if (v && typeof v === "string" && v.trim()) {
+        rows.push({ term: label, value: v.trim() });
+      }
+    }
+  }
+  return rows;
+}
+
 /** build concise summary for emails and alerts */
 export function buildConciseSummary(
   data: VendorStructuredData | Record<string, unknown> | null | undefined,

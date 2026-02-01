@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { toCSV, toMarkdown } from "@/lib/services/exportFormats";
 import { useTheme } from "@/lib/theme-provider";
 import { groupFindingsByCategory } from "@/lib/services/risk-insights";
+import { structuredDataToTableRows } from "@/lib/services/structured-summary";
 
 interface Vendor {
   id: string;
@@ -83,24 +84,27 @@ function parseExtractedTerms(summary: string): { intro: string; rows: { term: st
   const blocks = summary.split(/\n\n+/);
   const rows: { term: string; value: string }[] = [];
   let intro = "";
-  let foundTerms = false;
   for (const block of blocks) {
     const colonIdx = block.indexOf(": ");
-    if (colonIdx > 0 && colonIdx < 50) {
+    if (colonIdx > 0 && colonIdx < 80) {
       const term = block.slice(0, colonIdx).trim();
       const value = block.slice(colonIdx + 2).trim();
-      if (term && value && /^[\w\s&.-]+$/.test(term)) {
+      if (term && value && /^[\w\s&\/.-]+$/.test(term)) {
         rows.push({ term, value });
-        foundTerms = true;
-      } else if (!foundTerms) {
+      } else if (rows.length === 0) {
         intro = intro ? `${intro}\n\n${block}` : block;
       }
-    } else if (!foundTerms) {
+    } else if (rows.length === 0) {
       intro = intro ? `${intro}\n\n${block}` : block;
     }
   }
-  if (rows.length < 2) return null;
+  if (rows.length === 0) return null;
   return { intro: intro.trim(), rows };
+}
+
+/** build table rows from risk findings (category = term, finding = value) */
+function riskFindingsToTableRows(findings: { category: string; finding: string }[]): { term: string; value: string }[] {
+  return findings.map((f) => ({ term: f.category, value: f.finding }));
 }
 
 const typeLabels: Record<string, string> = {
@@ -1111,7 +1115,7 @@ export default function Home() {
             <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700">
               <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">Risk Alerts</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Liabilities and findings extracted from vendor terms. Alerts are grouped by Legal, Data & Security, Financial, and Operational risk.
+                Structured risk findings from vendor terms, privacy policies, and SLAs. Each alert summarizes liabilities, indemnification, data residency, compliance, and pricing terms. Findings are grouped by Legal, Data & Security, Financial, and Operational risk for review.
               </p>
             </div>
             {loading ? (
@@ -1190,11 +1194,17 @@ export default function Home() {
                           {event.summary && (
                             <div className="mt-4">
                               {(() => {
+                                const findingsRows = event.riskFindings?.length
+                                  ? riskFindingsToTableRows(event.riskFindings)
+                                  : [];
                                 const parsed = parseExtractedTerms(event.summary);
-                                if (parsed && parsed.rows.length > 0) {
+                                const rows = findingsRows.length > 0
+                                  ? findingsRows
+                                  : parsed?.rows ?? [];
+                                if (rows.length > 0) {
                                   return (
                                     <>
-                                      {parsed.intro && (
+                                      {parsed?.intro && findingsRows.length === 0 && (
                                         <p className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">{parsed.intro}</p>
                                       )}
                                       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
@@ -1206,7 +1216,7 @@ export default function Home() {
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                                            {parsed.rows.map((row, i) => (
+                                            {rows.map((row, i) => (
                                               <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
                                                 <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300">{row.term}</td>
                                                 <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{row.value}</td>
@@ -1272,7 +1282,7 @@ export default function Home() {
             <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700">
               <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">Extracted Content</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Extracted content from vendor sites and external search. Run the monitor to populate snapshots.
+                Crawled content and structured extraction from vendor sites. Structured terms are only available when the vendor links to terms, privacy, or policy pages.
               </p>
             </div>
             {snapshots.length === 0 ? (
@@ -1341,12 +1351,35 @@ export default function Home() {
                         Source: <a href={selectedSnapshot.extractionSourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400 break-all">{selectedSnapshot.extractionSourceUrl}</a>
                       </p>
                     )}
+                    {!(selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0) && (
+                      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Structured parsing unavailable</p>
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                          No terms, privacy, or policy links were found on the vendor site. Raw crawled content only; structured extraction was skipped to avoid inaccurate results.
+                        </p>
+                      </div>
+                    )}
                     {selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0 && (
-                      <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
-                        <p className="mb-2 text-xs font-medium text-indigo-800 dark:text-indigo-300">Structured data (Reducto)</p>
-                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-3 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                          {JSON.stringify(selectedSnapshot.structuredData, null, 2)}
-                        </pre>
+                      <div className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
+                        <p className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                          Extracted terms
+                        </p>
+                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                          <thead>
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Term</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Value</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                            {structuredDataToTableRows(selectedSnapshot.structuredData).map((row, i) => (
+                              <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
+                                <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300">{row.term}</td>
+                                <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{row.value}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-white p-4 text-xs text-slate-800 dark:bg-slate-900 dark:text-slate-200">
