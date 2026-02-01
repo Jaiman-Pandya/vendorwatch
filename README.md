@@ -99,13 +99,13 @@ VendorWatch monitors vendor websites for changes. It extracts structured data fr
 
 ```mermaid
 flowchart TB
-    A[Vendor URL] --> B[Firecrawl Scrape + Crawl + Search]
+    A[Vendor URL] --> B[Firecrawl]
     B --> C[Hash Compare]
-    C --> D{Content Changed?}
+    C --> D{Changed?}
     D -->|No| E[Skip]
-    D -->|Yes| F[Reducto Extract]
-    F --> G[Rule Engine / Claude]
-    G --> H[Risk Event + Findings]
+    D -->|Yes| F[Reducto]
+    F --> G[Rule Engine or Claude]
+    G --> H[Risk Event]
     H --> I[Resend Email]
 ```
 
@@ -123,11 +123,11 @@ flowchart TB
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Firecrawl-Scraping-4A90D9?style=flat-square" alt="Firecrawl" />
-  <img src="https://img.shields.io/badge/Reducto-Extraction-6366F1?style=flat-square" alt="Reducto" />
-  <img src="https://img.shields.io/badge/Anthropic_Claude-AI_Analysis-8B7355?style=flat-square" alt="Anthropic" />
-  <img src="https://img.shields.io/badge/Resend-Email-0B0B0B?style=flat-square" alt="Resend" />
-  <img src="https://img.shields.io/badge/Railway-Deploy-0B0D0E?style=flat-square&logo=railway&logoColor=white" alt="Railway" />
+  <img src="https://img.shields.io/static/v1?label=Firecrawl&message=&color=4A90D9&style=flat-square" alt="Firecrawl" />
+  <img src="https://img.shields.io/static/v1?label=Reducto&message=&color=6366F1&style=flat-square" alt="Reducto" />
+  <img src="https://img.shields.io/static/v1?label=Anthropic%20Claude&message=&color=8B7355&style=flat-square" alt="Anthropic" />
+  <img src="https://img.shields.io/static/v1?label=Resend&message=&color=0B0B0B&style=flat-square" alt="Resend" />
+  <img src="https://img.shields.io/static/v1?label=Railway&message=&logo=railway&logoColor=white&color=0B0D0E&style=flat-square" alt="Railway" />
 </p>
 
 | Layer | Technology |
