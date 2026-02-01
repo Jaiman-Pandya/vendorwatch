@@ -122,14 +122,6 @@ flowchart TB
   <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js" />
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/static/v1?label=Firecrawl&message=&color=4A90D9&style=flat-square" alt="Firecrawl" />
-  <img src="https://img.shields.io/static/v1?label=Reducto&message=&color=6366F1&style=flat-square" alt="Reducto" />
-  <img src="https://img.shields.io/static/v1?label=Anthropic%20Claude&message=&color=8B7355&style=flat-square" alt="Anthropic" />
-  <img src="https://img.shields.io/static/v1?label=Resend&message=&color=0B0B0B&style=flat-square" alt="Resend" />
-  <img src="https://img.shields.io/static/v1?label=Railway&message=&logo=railway&logoColor=white&color=0B0D0E&style=flat-square" alt="Railway" />
-</p>
-
 | Layer | Technology |
 |-------|------------|
 | **Frontend** | Next.js 16, React 19, Tailwind CSS v4 |
