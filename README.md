@@ -1,6 +1,6 @@
 <div align="center">
 
-# VendorWatch
+# VendorWatch | YCombinator/MongoDB Hackathon 
 
 VendorWatch monitors vendor websites for changes. It extracts structured data from terms, policies, and SLAs, surfaces liability and compliance issues, and sends risk alerts when terms change.
 
