@@ -1,5 +1,5 @@
 <h2 align="left" style="display: flex; align-items: center; gap: 10px;">
-  <img src="images/yc.png" alt="Y Combinator" width="26" />
+  <img src="images/y-combinator.png" alt="Y Combinator" width="26" />
   VendorWatch | Y Combinator and MongoDB Hackathon
 </h2>
 
