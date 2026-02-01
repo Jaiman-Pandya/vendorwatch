@@ -1,12 +1,8 @@
-<div className="flex items-center gap-3">
-  <img
-    src="/y-combinator.png"
-    alt="Y Combinator Logo"
-    className="h-6 w-auto"
-  />
-  <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
-    VendorWatch | Y Combinator and MongoDB Hackathon
-  </h1>
+<div align="center">
+<h2 align="left" style="display: flex; align-items: center; gap: 10px;">
+  <img src="images/y-combinator.png" alt="Y Combinator" width="26" />
+  VendorWatch | Y Combinator and MongoDB Hackathon
+</h2>
 </div>
 
 <div align="left">
