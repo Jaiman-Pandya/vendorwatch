@@ -1,10 +1,12 @@
-<div className="flex items-center gap-2">
-  <div className="bg-orange-500 text-white font-bold text-lg px-2 py-1 rounded-sm">
-    Y
-  </div>
-  <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+<div className="flex items-center gap-3">
+  <img
+    src="/y-combinator.png"
+    alt="Y Combinator Logo"
+    className="h-6 w-auto"
+  />
+  <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
     VendorWatch | Y Combinator and MongoDB Hackathon
-  </h2>
+  </h1>
 </div>
 
 <div align="left">
