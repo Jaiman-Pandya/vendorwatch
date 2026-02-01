@@ -1,7 +1,5 @@
-<div align="center">
-
 <h1 align="left">
-  <img src="images/yc.png" alt="Y Combinator" width="34" style="vertical-align: middle; margin-right: 10px;" />
+  <img src="images/y-combinator.png" alt="Y Combinator" width="34" style="vertical-align: middle; margin-right: 10px;" />
   VendorWatch | Y Combinator and MongoDB Hackathon
 </h1>
 
