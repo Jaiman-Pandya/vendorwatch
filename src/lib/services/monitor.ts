@@ -1,12 +1,12 @@
 import { ObjectId } from "mongodb";
 import { getVendorsCollection, getSnapshotsCollection, getRiskEventsCollection } from "../db/models";
-import type { RiskEvent, ExternalSource, SnapshotStructuredData } from "../db/models";
+import type { RiskEvent, ExternalSource, SnapshotStructuredData, ContextSource } from "../db/models";
 import { hashContent } from "./hashing";
 import { crawlVendor, crawlVendorSite, searchVendorNews } from "./firecrawl";
 import { extractFromUrls, getExtractionUrls } from "./reducto";
 import { filterStructuredData } from "./relevanceFilter";
 import { looksHallucinated } from "./extraction-validation";
-import { isRelevantVendorUrl } from "./urlFilter";
+import { isRelevantVendorUrl, isOnVendorDomain } from "./urlFilter";
 import { extractDocumentLinks } from "../utils/document-links";
 import { getDomain } from "../utils/url";
 import { buildCanonicalSummary, buildConciseSummary } from "./structured-summary";
@@ -40,6 +40,42 @@ export interface MonitorProgress {
 export type ProgressCallback = (progress: MonitorProgress) => void;
 
 let cancelRequested = false;
+
+function inferContextType(url: string): "news" | "status" | "blog" {
+  try {
+    const lower = url.toLowerCase();
+    const host = new URL(url).hostname.toLowerCase();
+    if (/\/status|\/status\/|status\./.test(lower) || /status\./.test(host)) return "status";
+    if (/\/blog|\/blog\/|blog\./.test(lower)) return "blog";
+  } catch {
+    // ignore
+  }
+  return "blog";
+}
+
+function buildContextSources(
+  vendorDomain: string,
+  externalSources: ExternalSource[],
+  crawledPages?: { url: string; title?: string }[]
+): ContextSource[] {
+  const seen = new Set<string>();
+  const out: ContextSource[] = [];
+  for (const s of externalSources) {
+    if (!s.url || seen.has(s.url)) continue;
+    seen.add(s.url);
+    out.push({ url: s.url, title: s.title, type: s.source === "news" ? "news" : "blog" });
+  }
+  if (crawledPages) {
+    for (const p of crawledPages) {
+      if (!p.url || seen.has(p.url)) continue;
+      if (!isOnVendorDomain(vendorDomain, p.url)) continue;
+      if (isRelevantVendorUrl(vendorDomain, p.url)) continue;
+      seen.add(p.url);
+      out.push({ url: p.url, title: p.title, type: inferContextType(p.url) });
+    }
+  }
+  return out;
+}
 
 export function requestCancellation() {
   cancelRequested = true;
@@ -124,19 +160,21 @@ export async function runMonitorCycle(
 
       // multi-page crawl on first snapshot only
       let pagesCrawled = 0;
+      let crawledPages: { url: string; title?: string }[] = [];
       if (!lastSnapshot) {
         try {
           const crawlResult = await crawlVendorSite(url);
           if (crawlResult.success && crawlResult.markdown) {
             extractedText += `\n\n--- CRAWLED PAGES (${crawlResult.pagesCount}) ---\n${crawlResult.markdown}`;
             pagesCrawled = crawlResult.pagesCount;
+            crawledPages = crawlResult.crawledPages ?? [];
           }
         } catch {
           // continue without crawl
         }
       }
 
-      // search web and news for external risk signals
+      // search web and news for external risk signals (context only, not for structured extraction)
       let externalSources: ExternalSource[] = [];
       try {
         const searchResult = await searchVendorNews(vendorName);
@@ -150,6 +188,8 @@ export async function runMonitorCycle(
 
       const contentHash = hashContent(extractedText);
       const isDeep = getResearchMode() === "deep";
+      const vendorDomain = getDomain(url);
+      const contextSources = buildContextSources(vendorDomain, externalSources, crawledPages);
 
       if (!lastSnapshot) {
         let firstStructured: SnapshotStructuredData | undefined;
@@ -178,7 +218,9 @@ export async function runMonitorCycle(
           contentHash,
           extractedText,
           structuredData: firstStructured,
-          extractionSourceUrl,
+          sourceType: firstStructured ? "policy" : undefined,
+          sourceUrl: extractionSourceUrl,
+          contextSources: contextSources.length > 0 ? contextSources : undefined,
           createdAt: new Date(),
         });
 
@@ -248,9 +290,11 @@ export async function runMonitorCycle(
           recommendedAction,
           structuredInsights,
           riskFindings: riskFindings.length > 0 ? riskFindings : undefined,
+          structuredFindings: firstStructured ?? undefined,
           source,
           alertSent,
           externalSources: externalSources.length > 0 ? externalSources : undefined,
+          contextSources: contextSources.length > 0 ? contextSources : undefined,
           createdAt: new Date(),
         });
 
@@ -293,7 +337,6 @@ export async function runMonitorCycle(
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
         const urlsToTry = getExtractionUrls(docLinks, url);
-        const vendorDomain = getDomain(url);
         const relevantUrls = urlsToTry.filter((u) => isRelevantVendorUrl(vendorDomain, u));
         if (relevantUrls.length === 0 && urlsToTry.length > 0) {
           console.warn(`No official policy or pricing URLs found for ${vendorName}`);
@@ -314,7 +357,9 @@ export async function runMonitorCycle(
         contentHash,
         extractedText,
         structuredData: newStructured,
-        extractionSourceUrl,
+        sourceType: newStructured ? "policy" : undefined,
+        sourceUrl: extractionSourceUrl,
+        contextSources: contextSources.length > 0 ? contextSources : undefined,
         createdAt: new Date(),
       });
 
@@ -386,9 +431,11 @@ export async function runMonitorCycle(
         recommendedAction,
         structuredInsights,
         riskFindings: riskFindings.length > 0 ? riskFindings : undefined,
+        structuredFindings: newStructured ?? undefined,
         source,
         alertSent,
         externalSources: externalSources.length > 0 ? externalSources : undefined,
+        contextSources: contextSources.length > 0 ? contextSources : undefined,
         createdAt: new Date(),
       };
 

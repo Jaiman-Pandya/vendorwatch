@@ -34,9 +34,11 @@ export async function GET(request: NextRequest) {
       recommendedAction: e.recommendedAction,
       structuredInsights: e.structuredInsights ?? null,
       riskFindings: e.riskFindings ?? [],
+      structuredFindings: e.structuredFindings ?? null,
       source: e.source ?? "ai",
       alertSent: e.alertSent ?? false,
       externalSources: e.externalSources ?? [],
+      contextSources: e.contextSources ?? [],
       createdAt: e.createdAt?.toISOString(),
     }));
 

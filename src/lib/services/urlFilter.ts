@@ -47,7 +47,8 @@ function getRootDomain(hostname: string): string {
   return stripped;
 }
 
-function isOnVendorDomain(vendorDomain: string, url: string): boolean {
+/** check if url belongs to vendor domain or subdomain (no path filter) */
+export function isOnVendorDomain(vendorDomain: string, url: string): boolean {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();

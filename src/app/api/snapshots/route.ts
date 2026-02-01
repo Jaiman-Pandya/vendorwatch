@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
           structuredData: snapshot.structuredData ?? {},
-          extractionSourceUrl: snapshot.extractionSourceUrl ?? null,
+          extractionSourceUrl: snapshot.sourceUrl ?? snapshot.extractionSourceUrl ?? null,
+          contextSources: snapshot.contextSources ?? [],
           createdAt: snapshot.createdAt?.toISOString(),
         },
       });
@@ -44,6 +45,7 @@ export async function GET(request: NextRequest) {
       contentHash: string;
       structuredData?: Record<string, unknown>;
       extractionSourceUrl?: string | null;
+      contextSources?: Array<{ url: string; title?: string; type: string }>;
       createdAt: string;
     }> = [];
 
@@ -60,7 +62,8 @@ export async function GET(request: NextRequest) {
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
           structuredData: snapshot.structuredData,
-          extractionSourceUrl: snapshot.extractionSourceUrl ?? null,
+          extractionSourceUrl: snapshot.sourceUrl ?? snapshot.extractionSourceUrl ?? null,
+          contextSources: snapshot.contextSources ?? [],
           createdAt: snapshot.createdAt!.toISOString(),
         });
       }

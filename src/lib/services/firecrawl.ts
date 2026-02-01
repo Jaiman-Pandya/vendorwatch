@@ -19,10 +19,16 @@ export interface ExternalSource {
   source: "news" | "web";
 }
 
+export interface CrawledPage {
+  url: string;
+  title?: string;
+}
+
 export interface CrawlResult {
   success: boolean;
   markdown: string;
   pagesCount: number;
+  crawledPages?: CrawledPage[];
   error?: string;
 }
 
@@ -64,11 +70,15 @@ export async function crawlVendorSite(url: string): Promise<CrawlResult> {
     }
 
     const pages = job.data ?? [];
+    const crawledPages: CrawledPage[] = [];
     const markdownParts = pages
       .filter((d) => d.markdown?.trim())
       .map((d) => {
-        const meta = d.metadata as { sourceURL?: string } | undefined;
+        const meta = d.metadata as { sourceURL?: string; title?: string } | undefined;
         const src = meta?.sourceURL ?? "unknown";
+        if (src && src !== "unknown") {
+          crawledPages.push({ url: src, title: meta?.title });
+        }
         return `--- Page: ${src} ---\n${d.markdown}`;
       });
     const markdown = markdownParts.join("\n\n");
@@ -77,6 +87,7 @@ export async function crawlVendorSite(url: string): Promise<CrawlResult> {
       success: true,
       markdown,
       pagesCount: pages.length,
+      crawledPages,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Crawl failed";

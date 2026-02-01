@@ -21,6 +21,12 @@ interface ExternalSource {
   source: "news" | "web";
 }
 
+interface ContextSource {
+  url: string;
+  title?: string;
+  type: "news" | "status" | "blog";
+}
+
 interface RiskFinding {
   category: string;
   finding: string;
@@ -36,9 +42,11 @@ interface RiskEvent {
   recommendedAction?: string;
   structuredInsights?: string | null;
   riskFindings?: RiskFinding[];
+  structuredFindings?: Record<string, unknown> | null;
   source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];
+  contextSources?: ContextSource[];
   createdAt: string;
 }
 
@@ -60,6 +68,7 @@ interface Snapshot {
   contentHash: string;
   structuredData?: Record<string, unknown>;
   extractionSourceUrl?: string | null;
+  contextSources?: ContextSource[];
   createdAt: string;
 }
 
@@ -1151,7 +1160,7 @@ export default function Home() {
             <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700">
               <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">Risk Alerts</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Structured risk findings from vendor terms, privacy policies, and SLAs. Each alert summarizes liabilities, indemnification, data residency, compliance, and pricing terms. Findings are grouped by Legal, Data & Security, Financial, and Operational risk for review.
+                Structured findings from official vendor policy, legal, pricing, security, and SLA pages. External context (news, blogs, status) is shown separately and is not used for risk scoring.
               </p>
             </div>
             {loading ? (
@@ -1195,111 +1204,100 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          {(grouped.length > 0 || (event.externalSources && event.externalSources.length > 0)) && (
-                            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                              <span>Findings:</span>
-                              {grouped.length > 0 && <span>Reducto (Terms/Policy)</span>}
-                              {grouped.length > 0 && event.externalSources && event.externalSources.length > 0 && <span>·</span>}
-                              {event.externalSources && event.externalSources.length > 0 && <span>News & Web</span>}
-                            </div>
-                          )}
-                          {grouped.length > 0 ? (
-                            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                              {grouped.map(({ category, findings }) => (
-                                <div key={category} className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">{category}</p>
-                                  <ul className="space-y-1.5">
-                                    {findings.map((finding, i) => (
+                          <div className="mt-6 space-y-6">
+                            {/* SECTION 1: Structured Vendor Commitments */}
+                            {(grouped.length > 0 || event.summary) && (
+                              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/50">
+                                <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Structured Vendor Commitments</h3>
+                                <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">Extracted from official vendor legal, pricing, security, and SLA pages.</p>
+                                {grouped.length > 0 ? (
+                                  <div className="grid gap-4 sm:grid-cols-2">
+                                    {["Legal", "Financial", "Data & Security", "Operational"].map((cat) => {
+                                      const card = grouped.find((g) => g.category === cat);
+                                      const findings = card?.findings ?? [];
+                                      return (
+                                        <div key={cat} className="rounded-lg border border-slate-200/80 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">
+                                          <div className="mb-2 flex items-center justify-between gap-2">
+                                            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{cat} Risk</span>
+                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${severityStyles[event.severity]}`}>
+                                              {event.severity}
+                                            </span>
+                                          </div>
+                                          {findings.length > 0 ? (
+                                            <ul className="space-y-1">
+                                              {findings.map((f, i) => (
+                                                <li key={i} className="flex gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" aria-hidden="true" />
+                                                  <span><FormalizedValue text={formalizeValue(f)} /></span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : (
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">No findings</p>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-400">{event.summary}</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* SECTION 2: Recommended Actions */}
+                            {event.recommendedAction && (
+                              <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/30 p-5 dark:border-indigo-800/50 dark:bg-indigo-900/20">
+                                <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Recommended Actions</h3>
+                                <ul className="space-y-2">
+                                  {event.recommendedAction
+                                    .split(/\n+/)
+                                    .map((line) => line.replace(/^\s*\d+\)\s*/, "").trim())
+                                    .filter((line) => line.length > 3 && !/^[•\-]\s|^Risks\/Liabilities|^Recommended actions:?$/i.test(line))
+                                    .map((action, i) => (
                                       <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
-                                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500 dark:bg-indigo-400" aria-hidden="true" />
-                                        <span><FormalizedValue text={formalizeValue(finding)} /></span>
+                                        <span className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" aria-hidden="true">✔</span>
+                                        <span>{action}</span>
+                                      </li>
+                                    ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* SECTION 3: External Context */}
+                            {(() => {
+                              const ctxSources: ContextSource[] = event.contextSources ?? [];
+                              const fallbackCtx: ContextSource[] = (event.externalSources ?? []).map((s) => ({
+                                url: s.url,
+                                title: s.title,
+                                type: (s.source === "news" ? "news" : "blog") as "news" | "blog",
+                              }));
+                              const allContext = ctxSources.length > 0 ? ctxSources : fallbackCtx;
+                              return allContext.length > 0 ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-700 dark:bg-slate-800/30">
+                                  <h3 className="mb-1 text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">External Context (Informational Only)</h3>
+                                  <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">These sources provide situational awareness but do not affect risk scoring.</p>
+                                  <ul className="space-y-2">
+                                    {allContext.map((src, i) => (
+                                      <li key={i} className="flex items-center gap-2">
+                                        <span className="shrink-0 rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium capitalize text-slate-600 dark:bg-slate-600 dark:text-slate-300">
+                                          {src.type}
+                                        </span>
+                                        <a
+                                          href={src.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="truncate text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                                        >
+                                          {src.title || src.url}
+                                        </a>
                                       </li>
                                     ))}
                                   </ul>
                                 </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          {event.summary && (
-                            <div className="mt-4">
-                              {(() => {
-                                const findingsRows = event.riskFindings?.length
-                                  ? riskFindingsToTableRows(event.riskFindings)
-                                  : [];
-                                const parsed = parseExtractedTerms(event.summary);
-                                const parsedRows = parsed?.rows?.map((r) => ({
-                                  term: formalizeValue(r.term),
-                                  value: formalizeValueMultiline(r.value),
-                                })) ?? [];
-                                const rows = findingsRows.length > 0
-                                  ? findingsRows
-                                  : parsedRows;
-                                if (rows.length > 0) {
-                                  return (
-                                    <>
-                                      {parsed?.intro && findingsRows.length === 0 && (
-                                        <p className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">{parsed.intro}</p>
-                                      )}
-                                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/50">
-                                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                                          <thead>
-                                            <tr>
-                                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Term</th>
-                                              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Value</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                                            {rows.map((row, i) => (
-                                              <tr key={i} className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                                                <td className="px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200">{row.term}</td>
-                                                <td className="whitespace-pre-wrap px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
-                                                  <FormalizedValue text={row.value} />
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    </>
-                                  );
-                                }
-                                return <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-400">{event.summary}</p>;
-                              })()}
-                            </div>
-                          )}
-                          {event.recommendedAction && (
-                            <div className="mt-4 rounded-lg border-l-4 border-indigo-500 bg-indigo-50/50 py-3 pl-4 pr-3 dark:bg-indigo-900/20 dark:border-indigo-400">
-                              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Recommended Actions</p>
-                              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">{event.recommendedAction}</p>
-                            </div>
-                          )}
-                          {event.externalSources && event.externalSources.length > 0 && (
-                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-                              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">External Sources</p>
-                              <ul className="space-y-3">
-                                {event.externalSources.map((src, i) => (
-                                  <li key={i} className="flex gap-3">
-                                    <span className="shrink-0 rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium capitalize text-slate-600 dark:bg-slate-700 dark:text-slate-400">
-                                      {src.source}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                      <a
-                                        href={src.url}
-            target="_blank"
-            rel="noopener noreferrer"
-                                        className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400 break-all"
-                                      >
-                                        {src.title || src.url}
-                                      </a>
-                                      {src.snippet && (
-                                        <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{src.snippet}</p>
-                                      )}
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
+                              ) : null;
+                            })()}
+                          </div>
                         </div>
                         <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">{formatTimestamp(event.createdAt)}</span>
                       </div>
@@ -1383,8 +1381,22 @@ export default function Home() {
                     </div>
                     {selectedSnapshot.extractionSourceUrl && (
                       <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-                        Source: <a href={selectedSnapshot.extractionSourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400 break-all">{selectedSnapshot.extractionSourceUrl}</a>
+                        Policy source: <a href={selectedSnapshot.extractionSourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400 break-all">{selectedSnapshot.extractionSourceUrl}</a>
                       </p>
+                    )}
+                    {selectedSnapshot.contextSources && selectedSnapshot.contextSources.length > 0 && (
+                      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                        <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-100">External Context (Not Used for Risk Scoring)</p>
+                        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">These sources provide situational awareness but do not affect risk scoring.</p>
+                        <ul className="space-y-2">
+                          {selectedSnapshot.contextSources.map((src, i) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="shrink-0 rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium capitalize text-slate-600 dark:bg-slate-700 dark:text-slate-400">{src.type}</span>
+                              <a href={src.url} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400 break-all">{src.title || src.url}</a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                     {!(selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0) && (
                       <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-900/20">

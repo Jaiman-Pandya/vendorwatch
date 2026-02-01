@@ -33,13 +33,24 @@ export interface SnapshotStructuredData {
   [key: string]: string | string[] | undefined;
 }
 
+export type PolicySourceType = "policy" | "context";
+
+export interface ContextSource {
+  title?: string;
+  url: string;
+  type: "news" | "status" | "blog";
+}
+
 export interface Snapshot {
   _id?: ObjectId;
   vendorId: ObjectId;
   contentHash: string;
   extractedText: string;
   structuredData?: SnapshotStructuredData;
+  sourceType?: PolicySourceType;
+  sourceUrl?: string;
   extractionSourceUrl?: string;
+  contextSources?: ContextSource[];
   createdAt: Date;
 }
 
@@ -67,10 +78,14 @@ export interface RiskEvent {
   structuredInsights?: string;
   /** actionable liabilities extracted from structured data */
   riskFindings?: RiskFindingRecord[];
+  /** structured data from policy pages, used for risk scoring */
+  structuredFindings?: SnapshotStructuredData;
   /** rules for basic research, ai for deep research */
   source?: "rules" | "ai";
   alertSent?: boolean;
   externalSources?: ExternalSource[];
+  /** context sources (news, status, blog) not used for risk scoring */
+  contextSources?: ContextSource[];
   createdAt: Date;
 }
 
