@@ -16,6 +16,7 @@ immense recognition to my teammate Aryansh Shrivastava (UC Berkeley) for develop
 
 <br />
 
+## Tech Stack Broad Overview
 ![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs)
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript)
