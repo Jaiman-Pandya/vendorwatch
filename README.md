@@ -1,6 +1,19 @@
+<div align="center">
+
 # VendorWatch
 
-VendorWatch is a vendor risk monitoring platform that tracks changes to vendor websites, extracts structured data from terms of service and privacy policies, and surfaces liabilities and risk findings in a structured dashboard.
+VendorWatch monitors vendor websites for changes. It extracts structured data from terms, policies, and SLAs, surfaces liability and compliance issues, and sends risk alerts when terms change.
+
+<br />
+
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+
+</div>
 
 ---
 
@@ -84,27 +97,49 @@ VendorWatch is a vendor risk monitoring platform that tracks changes to vendor w
 
 ### Data Flow
 
-```
-Vendor URL → Firecrawl (scrape + optional crawl + search)
-    → Hash compare with last snapshot
-    → If changed: Reducto (extract from Terms/Policy URLs)
-        → Rule engine (Basic) or LLM (Deep) → Risk event
-        → Resend (email if severity matches prefs)
+```mermaid
+flowchart TB
+    A[Vendor URL] --> B[Firecrawl Scrape + Crawl + Search]
+    B --> C[Hash Compare]
+    C --> D{Content Changed?}
+    D -->|No| E[Skip]
+    D -->|Yes| F[Reducto Extract]
+    F --> G[Rule Engine / Claude]
+    G --> H[Risk Event + Findings]
+    H --> I[Resend Email]
 ```
 
 ---
 
 ## Tech Stack
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js_16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Tailwind_v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind" />
+  <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Firecrawl-Scraping-4A90D9?style=flat-square" alt="Firecrawl" />
+  <img src="https://img.shields.io/badge/Reducto-Extraction-6366F1?style=flat-square" alt="Reducto" />
+  <img src="https://img.shields.io/badge/Anthropic_Claude-AI_Analysis-8B7355?style=flat-square" alt="Anthropic" />
+  <img src="https://img.shields.io/badge/Resend-Email-0B0B0B?style=flat-square" alt="Resend" />
+  <img src="https://img.shields.io/badge/Railway-Deploy-0B0D0E?style=flat-square&logo=railway&logoColor=white" alt="Railway" />
+</p>
+
 | Layer | Technology |
 |-------|------------|
-| Frontend | Next.js 16, React 19, Tailwind CSS v4 |
-| Backend | Next.js Route Handlers, Node.js |
-| Database | MongoDB |
-| Scraping | Firecrawl |
-| Document extraction | Reducto |
-| Risk analysis | Anthropic Claude (Deep mode) or rule engine (Basic mode) |
-| Email | Resend |
+| **Frontend** | Next.js 16, React 19, Tailwind CSS v4 |
+| **Backend** | Next.js Route Handlers, Node.js |
+| **Database** | MongoDB |
+| **Scraping** | Firecrawl |
+| **Document extraction** | Reducto |
+| **Risk analysis** | Anthropic Claude (Deep mode) or rule engine (Basic mode) |
+| **Email** | Resend |
+| **Deployment** | Railway |
 
 ---
 
@@ -259,6 +294,16 @@ When `CRON_SECRET` is set, requests must include one of:
 ---
 
 ## Monitoring Pipeline
+
+```mermaid
+flowchart LR
+    A[1. Scrape] --> B[2. Crawl]
+    B --> C[3. Search]
+    C --> D[4. Hash]
+    D --> E[5. Extract]
+    E --> F[6. Analyze]
+    F --> G[7. Alert]
+```
 
 1. **Scrape** vendor homepage via Firecrawl
 2. **Crawl** (first snapshot only) up to 3 pages for terms, privacy, legal
