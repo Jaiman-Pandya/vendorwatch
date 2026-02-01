@@ -1,6 +1,6 @@
 <div align="center">
 
-# VendorWatch | Y Combinator and MongoDB Hackathon Project
+# VendorWatch | Y Combinator and MongoDB Hackathon
 
 <div align="left">
 VendorWatch is a vendor risk monitoring system that tracks changes to what third-party vendors actually and officially commit to. It focuses on vendor terms of service, privacy policies, security documentation, pricing pages, and SLAs — the sources that define legal, financial, and compliance exposure. The system continuously crawls vendor websites and extracts structured information such as liability limits, indemnification language, billing and refund terms, data residency practices, compliance references, and uptime guarantees. This turns dense legal and policy text into machine-readable data. VendorWatch stores versioned snapshots of these vendor commitments, allowing it to detect meaningful changes over time. When differences appear, it generates categorized risk alerts across legal, financial, data and security, and operational domains. Teams are notified so they can review potential exposure early, rather than discovering issues after an incident or dispute. External news and status pages are surfaced separately for context, but risk analysis is based strictly on official vendor commitments.
@@ -8,12 +8,15 @@ VendorWatch is a vendor risk monitoring system that tracks changes to what third
 
 <br />
 
-![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white)
-![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs)
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript)
+![Tailwind](https://img.shields.io/badge/Tailwind-38B2AC?style=for-the-badge&logo=tailwind-css)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js)
+![Firecrawl](https://img.shields.io/badge/Firecrawl-Web%20Crawling-orange?style=for-the-badge)
+![Reducto](https://img.shields.io/badge/Reducto-Document%20Extraction-purple?style=for-the-badge)
+![Resend](https://img.shields.io/badge/Resend-Email%20Alerts-black?style=for-the-badge)
 
 </div>
 
@@ -375,6 +378,6 @@ Without `CRON_SECRET`, the endpoint accepts unauthenticated requests (suitable o
 Proprietary.
 
 ## Two Person Team (w/ Aryansh Shrivastava @ UC Berkeley)
-![Team Picture](images/team.jpg)
+![Team Picture](images/team.jpeg)
 This was an ambitious project to undertake in the eight hour time-frame allotted. Grateful to experience something new with everyone I met, and
 recognition to my teammate Aryansh Shrivastava (UC Berkeley) for developing this project with me. 
