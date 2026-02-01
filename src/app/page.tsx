@@ -1074,8 +1074,8 @@ export default function Home() {
                                   <span className="font-medium text-slate-900 dark:text-white">{v.name}</span>
                                   <a
                                     href={normalizeUrl(v.website)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+            target="_blank"
+            rel="noopener noreferrer"
                                     className="ml-2 text-sm text-indigo-600 hover:underline dark:text-indigo-400"
                                   >
                                     {v.website}
@@ -1239,8 +1239,8 @@ export default function Home() {
                                     <div className="min-w-0 flex-1">
                                       <a
                                         href={src.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+            target="_blank"
+            rel="noopener noreferrer"
                                         className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400 break-all"
                                       >
                                         {src.title || src.url}
@@ -1351,7 +1351,7 @@ export default function Home() {
                 )}
               </div>
             )}
-          </div>
+        </div>
         )}
       </main>
     </div>
