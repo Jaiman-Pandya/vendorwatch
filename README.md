@@ -1,8 +1,10 @@
-<div align="center">
-<h2 align="left" style="display: flex; align-items: center; gap: 10px;">
-  <img src="images/y-combinator.png" alt="Y Combinator" width="26" />
-  VendorWatch | Y Combinator and MongoDB Hackathon
-</h2>
+<div className="flex items-center gap-2">
+  <div className="bg-orange-500 text-white font-bold text-lg px-2 py-1 rounded-sm">
+    Y
+  </div>
+  <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
+    VendorWatch | Y Combinator and MongoDB Hackathon
+  </h2>
 </div>
 
 <div align="left">
