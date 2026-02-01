@@ -1,14 +1,13 @@
-/** rule-based url filtering for structured extraction. only policy, pricing, legal, security, sla pages. */
+/** rule-based url filtering for structured extraction. only official policy, pricing, legal, security, sla pages. */
 
 const PATH_ALLOW = [
   "terms",
-  "tos",
-  "privacy",
-  "policy",
   "legal",
+  "privacy",
   "security",
   "trust",
   "sla",
+  "uptime",
   "compliance",
   "dpa",
   "data-processing",
@@ -17,20 +16,21 @@ const PATH_ALLOW = [
   "fees",
   "billing",
   "support",
-  "uptime",
 ];
 
 const PATH_BLOCK = [
-  "news",
   "blog",
-  "forum",
-  "community",
+  "news",
   "press",
   "media",
   "events",
+  "community",
+  "forum",
   "careers",
   "about",
-  "investor",
+  "investors",
+  "stories",
+  "case-study",
 ];
 
 function getRootDomain(hostname: string): string {
@@ -60,6 +60,7 @@ function isOnVendorDomain(vendorDomain: string, url: string): boolean {
   }
 }
 
+
 function hasAllowedPathKeyword(url: string): boolean {
   const lower = url.toLowerCase();
   for (const kw of PATH_ALLOW) {
@@ -84,7 +85,7 @@ function hasBlockedPathKeyword(url: string): boolean {
   return false;
 }
 
-/** returns true only if url is on vendor domain, has an allowed path keyword, and lacks blocked keywords */
+/** returns true only if url is on vendor domain (strict hostname), has an allowed path keyword, and lacks blocked keywords */
 export function isRelevantVendorUrl(vendorDomain: string, url: string): boolean {
   if (!vendorDomain?.trim() || !url?.trim()) return false;
   try {

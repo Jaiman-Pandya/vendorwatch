@@ -157,7 +157,12 @@ export async function runMonitorCycle(
         try {
           const docLinks = extractDocumentLinks(extractedText, url);
           const urlsToTry = getExtractionUrls(docLinks, url);
-          const result = await extractFromUrls(urlsToTry);
+          const vendorDomain = getDomain(url);
+          const relevantUrls = urlsToTry.filter((u) => isRelevantVendorUrl(vendorDomain, u));
+          if (relevantUrls.length === 0 && urlsToTry.length > 0) {
+            console.warn(`No official policy or pricing URLs found for ${vendorName}`);
+          }
+          const result = await extractFromUrls(relevantUrls);
           if (result && Object.keys(result.data).length > 0) {
             if (!looksHallucinated(result.data, result.sourceUrl, extractedText)) {
               firstStructured = filterStructuredData(result.data) as SnapshotStructuredData;
@@ -291,7 +296,7 @@ export async function runMonitorCycle(
         const vendorDomain = getDomain(url);
         const relevantUrls = urlsToTry.filter((u) => isRelevantVendorUrl(vendorDomain, u));
         if (relevantUrls.length === 0 && urlsToTry.length > 0) {
-          console.warn("⚠ No policy/pricing/legal URLs found for vendor", vendorName);
+          console.warn(`No official policy or pricing URLs found for ${vendorName}`);
         }
         const result = await extractFromUrls(relevantUrls);
         if (result && Object.keys(result.data).length > 0) {
