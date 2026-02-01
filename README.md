@@ -2,7 +2,11 @@
 
 # VendorWatch | Y Combinator and MongoDB Hackathon Project
 
-VendorWatch is a vendor risk monitoring tool that tracks changes to what third-party vendors actually and officially commit to. It focuses on terms of service, privacy policies, security documentation, pricing pages, and SLAs. The system crawls vendor websites and extracts structured information such as liability limits, indemnification language, billing and refund terms, data residency practices, compliance references, and uptime guarantees. It stores versioned snapshots so changes can be detected over time. When meaningful differences appear, VendorWatch generates categorized risk alerts across legal, financial, data and security, and operational areas. It then notifies teams so they can review potential exposure early and avoid potential liability issues. 
+VendorWatch is a vendor risk monitoring tool that tracks changes to what third-party vendors actually and officially commit to. It focuses on terms of service, privacy policies, security documentation, pricing pages, and SLAs. 
+
+The system crawls vendor websites and extracts structured information such as liability limits, indemnification language, billing and refund terms, data residency practices, compliance references, and uptime guarantees. 
+
+It stores versioned snapshots so changes can be detected over time. When meaningful differences appear, VendorWatch generates categorized risk alerts across legal, financial, data and security, and operational areas. It then notifies teams so they can review potential exposure early and avoid potential liability issues. 
 
 <br />
 
