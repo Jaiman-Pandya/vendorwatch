@@ -39,6 +39,7 @@ export async function GET(
       snapshotDate: snapshot.createdAt?.toISOString(),
       contentHash: snapshot.contentHash,
       structuredData: snapshot.structuredData ?? {},
+      extractionSourceUrl: snapshot.extractionSourceUrl ?? null,
     };
 
     return NextResponse.json(payload);

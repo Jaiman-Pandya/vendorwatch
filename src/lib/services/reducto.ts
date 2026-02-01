@@ -163,10 +163,10 @@ export async function extractStructuredData(fileUrl: string): Promise<Structured
   }
 }
 
-/** common paths for terms and legal pages when no doc links found */
+/** common paths for terms and legal pages, only used when doc links exist */
 const COMMON_LEGAL_PATHS = ["/legal", "/terms", "/terms-of-service", "/privacy", "/tos", "/terms.html", "/legal.html"];
 
-/** get urls to try for reducto extraction */
+/** get urls to try for reducto extraction. returns [] when no doc links found to avoid hallucination from generic pages. */
 export function getExtractionUrls(docLinks: string[], baseUrl: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -178,6 +178,8 @@ export function getExtractionUrls(docLinks: string[], baseUrl: string): string[]
     }
   }
 
+  if (out.length === 0) return [];
+
   try {
     const base = new URL(baseUrl);
     const origin = base.origin;
@@ -188,7 +190,6 @@ export function getExtractionUrls(docLinks: string[], baseUrl: string): string[]
         out.push(full);
       }
     }
-    // also try base url
     if (!seen.has(origin + "/")) {
       out.push(origin + "/");
     }
@@ -199,12 +200,17 @@ export function getExtractionUrls(docLinks: string[], baseUrl: string): string[]
   return out.slice(0, 4);
 }
 
-/** extract structured data from multiple urls until one succeeds */
-export async function extractFromUrls(urls: string[]): Promise<StructuredDocData | null> {
+export interface ExtractionResult {
+  data: StructuredDocData;
+  sourceUrl: string;
+}
+
+/** extract structured data from multiple urls until one succeeds. returns null when no suitable docs found. */
+export async function extractFromUrls(urls: string[]): Promise<ExtractionResult | null> {
   for (const u of urls) {
     const data = await extractStructuredData(u);
     if (data && Object.keys(data).length > 0) {
-      return data;
+      return { data, sourceUrl: u };
     }
   }
   return null;

@@ -57,6 +57,7 @@ interface Snapshot {
   extractedText: string;
   contentHash: string;
   structuredData?: Record<string, unknown>;
+  extractionSourceUrl?: string | null;
   createdAt: string;
 }
 
@@ -1335,6 +1336,11 @@ export default function Home() {
                         </button>
                       </div>
                     </div>
+                    {selectedSnapshot.extractionSourceUrl && (
+                      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                        Source: <a href={selectedSnapshot.extractionSourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline dark:text-indigo-400 break-all">{selectedSnapshot.extractionSourceUrl}</a>
+                      </p>
+                    )}
                     {selectedSnapshot.structuredData && Object.keys(selectedSnapshot.structuredData).length > 0 && (
                       <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
                         <p className="mb-2 text-xs font-medium text-indigo-800 dark:text-indigo-300">Structured data (Reducto)</p>

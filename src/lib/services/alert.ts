@@ -57,22 +57,25 @@ export async function sendRiskAlert(params: AlertParams): Promise<boolean> {
     const beforePayload = {location:'alert.ts:sendRiskAlert:beforeSend',message:'calling Resend API',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'};
     fetch('http://127.0.0.1:7242/ingest/5f816a8f-caa0-4d2f-afb0-8fbdd38b89a4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(beforePayload)}).catch(()=>{});
     debugLog(beforePayload);
-    // same call shape as alert test route
+
+    const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const nl2br = (s: string) => esc(s).replace(/\n/g, "<br />");
+
     const { error } = await resendClient.emails.send({
       from,
       to: [to],
       subject: `[VendorWatch] ${params.severity.toUpperCase()} risk: ${params.vendorName}`,
       html: `
         <h2>Vendor Risk Alert</h2>
-        <p><strong>Vendor:</strong> ${params.vendorName}</p>
-        <p><strong>Website:</strong> <a href="${params.vendorWebsite}">${params.vendorWebsite}</a></p>
-        <p><strong>Severity:</strong> ${params.severity}</p>
-        <p><strong>Type:</strong> ${params.type}</p>
+        <p><strong>Vendor:</strong> ${esc(params.vendorName)}</p>
+        <p><strong>Website:</strong> <a href="${esc(params.vendorWebsite)}">${esc(params.vendorWebsite)}</a></p>
+        <p><strong>Severity:</strong> ${esc(params.severity)}</p>
+        <p><strong>Type:</strong> ${esc(params.type)}</p>
         <hr />
-        <p><strong>Summary:</strong></p>
-        <p>${params.summary}</p>
-        <p><strong>Recommended action:</strong></p>
-        <p>${params.recommendedAction}</p>
+        <h3>Summary</h3>
+        <div style="margin: 0 0 1rem 0; line-height: 1.6; white-space: pre-wrap;">${nl2br(params.summary)}</div>
+        <h3>Recommended Actions</h3>
+        <div style="margin: 0; line-height: 1.6; white-space: pre-wrap;">${nl2br(params.recommendedAction)}</div>
       `,
     });
 

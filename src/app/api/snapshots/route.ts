@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
           structuredData: snapshot.structuredData ?? {},
+          extractionSourceUrl: snapshot.extractionSourceUrl ?? null,
           createdAt: snapshot.createdAt?.toISOString(),
         },
       });
@@ -42,6 +43,7 @@ export async function GET(request: NextRequest) {
       extractedText: string;
       contentHash: string;
       structuredData?: Record<string, unknown>;
+      extractionSourceUrl?: string | null;
       createdAt: string;
     }> = [];
 
@@ -58,6 +60,7 @@ export async function GET(request: NextRequest) {
           extractedText: snapshot.extractedText,
           contentHash: snapshot.contentHash,
           structuredData: snapshot.structuredData,
+          extractionSourceUrl: snapshot.extractionSourceUrl ?? null,
           createdAt: snapshot.createdAt!.toISOString(),
         });
       }

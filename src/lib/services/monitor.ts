@@ -4,6 +4,8 @@ import type { RiskEvent, ExternalSource, SnapshotStructuredData } from "../db/mo
 import { hashContent } from "./hashing";
 import { crawlVendor, crawlVendorSite, searchVendorNews } from "./firecrawl";
 import { extractFromUrls, getExtractionUrls } from "./reducto";
+import { filterStructuredData } from "./relevanceFilter";
+import { looksHallucinated } from "./extraction-validation";
 import { extractDocumentLinks } from "../utils/document-links";
 import { buildCanonicalSummary, buildConciseSummary } from "./structured-summary";
 import { extractRiskFindings, buildRecommendedActionsFromFindings } from "./risk-insights";
@@ -148,14 +150,17 @@ export async function runMonitorCycle(
       const isDeep = getResearchMode() === "deep";
 
       if (!lastSnapshot) {
-        // extract structured data from linked docs
         let firstStructured: SnapshotStructuredData | undefined;
+        let extractionSourceUrl: string | undefined;
         try {
           const docLinks = extractDocumentLinks(extractedText, url);
           const urlsToTry = getExtractionUrls(docLinks, url);
-          const data = await extractFromUrls(urlsToTry);
-          if (data && Object.keys(data).length > 0) {
-            firstStructured = data as SnapshotStructuredData;
+          const result = await extractFromUrls(urlsToTry);
+          if (result && Object.keys(result.data).length > 0) {
+            if (!looksHallucinated(result.data, result.sourceUrl, extractedText)) {
+              firstStructured = filterStructuredData(result.data) as SnapshotStructuredData;
+              extractionSourceUrl = result.sourceUrl;
+            }
           }
         } catch {
           // skip if extraction fails
@@ -166,6 +171,7 @@ export async function runMonitorCycle(
           contentHash,
           extractedText,
           structuredData: firstStructured,
+          extractionSourceUrl,
           createdAt: new Date(),
         });
 
@@ -275,14 +281,17 @@ export async function runMonitorCycle(
         continue;
       }
 
-      // extract structured data via reducto
       let newStructured: SnapshotStructuredData | undefined;
+      let extractionSourceUrl: string | undefined;
       try {
         const docLinks = extractDocumentLinks(extractedText, url);
         const urlsToTry = getExtractionUrls(docLinks, url);
-        const data = await extractFromUrls(urlsToTry);
-        if (data && Object.keys(data).length > 0) {
-          newStructured = data as SnapshotStructuredData;
+        const result = await extractFromUrls(urlsToTry);
+        if (result && Object.keys(result.data).length > 0) {
+          if (!looksHallucinated(result.data, result.sourceUrl, extractedText)) {
+            newStructured = filterStructuredData(result.data) as SnapshotStructuredData;
+            extractionSourceUrl = result.sourceUrl;
+          }
         }
       } catch {
         // skip if extraction fails
@@ -293,6 +302,7 @@ export async function runMonitorCycle(
         contentHash,
         extractedText,
         structuredData: newStructured,
+        extractionSourceUrl,
         createdAt: new Date(),
       });
 

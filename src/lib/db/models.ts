@@ -39,6 +39,7 @@ export interface Snapshot {
   contentHash: string;
   extractedText: string;
   structuredData?: SnapshotStructuredData;
+  extractionSourceUrl?: string;
   createdAt: Date;
 }
 
